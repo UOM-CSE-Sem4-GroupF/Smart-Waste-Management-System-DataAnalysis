@@ -102,6 +102,26 @@ docker exec -i postgres psql -U postgres -d waste_db -c "SELECT * FROM waste_pre
 docker exec -i influxdb influx query "from(bucket: \"waste-data\") |> range(start: -10m) |> filter(fn: (r) => r._measurement == \"waste_prediction\") |> limit(n: 20)"
 ```
 
+View raw waste events from InfluxDB:
+
+```powershell
+docker exec -i influxdb influx query "from(bucket: \"waste-data\") |> range(start: -10m) |> filter(fn: (r) => r._measurement == \"waste\") |> limit(n: 20)"
+```
+
+View InfluxDB bucket list:
+
+```powershell
+docker exec -i influxdb influx bucket list
+```
+
+Optional InfluxDB Web UI:
+
+1. Open `http://127.0.0.1:8086`
+2. Login with the token from `.env` (`INFLUXDB_TOKEN`)
+3. Go to `Data Explorer`
+4. Select bucket `waste-data`
+5. Query measurements `waste` and `waste_prediction`
+
 ## pgAdmin UI
 
 Open:
@@ -151,3 +171,48 @@ git add .
 git commit -m "Project cleanup and Docker runbook README"
 git push origin Kalana
 ```
+
+## Project structure
+
+```text
+Smart-Waste-Management-System-DataAnalysis/
+|-- docker-compose.yml
+|-- Dockerfile.python
+|-- Dockerfile.spark
+|-- .env
+|-- .env.example
+|-- .gitignore
+|-- README.md
+|-- mosquitto.conf
+|-- init.sql
+|-- config.py
+|-- publisher.py
+|-- mqtt_to_kafka.py
+|-- influxdb_consumer.py
+|-- spark_stream.py
+|-- requirements.docker.txt
+`-- requirements.spark.txt
+```
+
+## What happens in the project
+
+1. `publisher.py` generates sample waste bin readings.
+2. Messages are published to MQTT topics (`waste/<bin_id>`).
+3. `mqtt_to_kafka.py` consumes MQTT and pushes JSON to Kafka topic `waste-stream`.
+4. `influxdb_consumer.py` consumes Kafka and writes raw stream points to InfluxDB measurement `waste`.
+5. `spark_stream.py` reads Kafka with Spark Structured Streaming.
+6. Spark computes prediction horizons (5 min, 4 hour, 1 day, 7 day).
+7. Spark writes predictions to PostgreSQL tables:
+  - `waste_predictions_5min`
+  - `waste_predictions_4hour`
+  - `waste_predictions_1day`
+  - `waste_predictions_7day`
+8. Spark also writes prediction points to InfluxDB measurement `waste_prediction`.
+
+## End-to-end data flow
+
+1. Sensor simulation: `publisher.py` -> MQTT (`mosquitto`)
+2. Stream bridge: MQTT -> `mqtt_to_kafka.py` -> Kafka (`waste-stream`)
+3. Raw storage path: Kafka -> `influxdb_consumer.py` -> InfluxDB (`waste`)
+4. Analytics path: Kafka -> `spark_stream.py` -> PostgreSQL prediction tables
+5. Time-series prediction path: `spark_stream.py` -> InfluxDB (`waste_prediction`)
