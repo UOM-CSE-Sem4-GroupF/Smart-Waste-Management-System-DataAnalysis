@@ -25,33 +25,8 @@ Use these commands from any folder:
 git clone https://github.com/UOM-CSE-Sem4-GroupF/Smart-Waste-Management-System-DataAnalysis.git
 cd Smart-Waste-Management-System-DataAnalysis
 git checkout Kalana
-```
-
-If `Kalana` branch does not exist locally:
-
-```powershell
 git fetch origin
-git checkout -b Kalana origin/Kalana
 ```
-
-## Environment setup
-
-This branch includes a ready-to-run `.env` with sample values.
-
-If `.env` is missing, create it from template:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Sample values currently used:
-
-1. `POSTGRES_PASSWORD=WasteDbPass_2026_A9x7`
-2. `INFLUXDB_TOKEN=9Qc2uNf7Lp4RwXv8Hk1Zs6Ty3Ba0Md5Je2Ur9Pn4Gq7Vt1Cx8Wy6Kb3Hs5Nm2RjA`
-
-So you can run Docker immediately without editing `.env`.
-
-Only edit `.env` if you want custom values.
 
 ## Run from scratch (Docker)
 
@@ -75,19 +50,19 @@ docker-compose logs -f publisher-app mqtt-to-kafka influxdb-consumer-app spark-s
 
 ## Verify data in PostgreSQL
 
-Raw stream row count:
+Raw stream row count(if no rows are in tables wait few minutes to let containers run and try again):
 
 ```powershell
 docker exec -i postgres psql -U postgres -d waste_db -c "SELECT COUNT(*) AS raw_rows FROM waste_stream;"
 ```
 
-Prediction row counts by horizon table:
+Prediction row counts by horizon table(if no rows are in tables wait few minutes to let containers run and try again):
 
 ```powershell
 docker exec -i postgres psql -U postgres -d waste_db -c "SELECT '5min' AS horizon, COUNT(*) AS rows FROM waste_predictions_5min UNION ALL SELECT '4hour', COUNT(*) FROM waste_predictions_4hour UNION ALL SELECT '1day', COUNT(*) FROM waste_predictions_1day UNION ALL SELECT '7day', COUNT(*) FROM waste_predictions_7day;"
 ```
 
-Latest rows from each prediction table:
+Latest rows from each prediction table(if no rows are in tables wait few minutes to let containers run and try again):
 
 ```powershell
 docker exec -i postgres psql -U postgres -d waste_db -c "SELECT * FROM waste_predictions_5min ORDER BY id DESC LIMIT 10;"
@@ -117,7 +92,9 @@ docker exec -i influxdb influx bucket list
 Optional InfluxDB Web UI:
 
 1. Open `http://127.0.0.1:8086`
-2. Login with the token from `.env` (`INFLUXDB_TOKEN`)
+2. Login with below credintials
+      Username: admin
+      Password: password
 3. Go to `Data Explorer`
 4. Select bucket `waste-data`
 5. Query measurements `waste` and `waste_prediction`
