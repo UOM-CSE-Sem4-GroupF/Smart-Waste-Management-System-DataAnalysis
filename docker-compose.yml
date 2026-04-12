@@ -100,6 +100,30 @@ services:
     networks:
       - waste-network
 
+  spark-stream-app:
+    image: bde2020/spark-master:3.3.0-hadoop3.3
+    container_name: spark-stream-app
+    command: /spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,org.postgresql:postgresql:42.6.0 /app/spark_stream.py
+    env_file:
+      - .env
+    environment:
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 29092
+      POSTGRES_HOST: postgres
+      SPARK_CHECKPOINT_DIR: /tmp/spark-checkpoint
+      SPARK_DELEGATED: "1"
+    volumes:
+      - ./:/app
+    depends_on:
+      - spark-master
+      - kafka
+      - postgres
+    restart: unless-stopped
+    networks:
+      - waste-network
+    profiles:
+      - apps
+
   mqtt-to-kafka:
     build:
       context: .
