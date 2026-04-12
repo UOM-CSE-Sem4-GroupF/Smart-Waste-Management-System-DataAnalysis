@@ -1,7 +1,9 @@
 from kafka import KafkaConsumer
+from kafka.errors import NoBrokersAvailable
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import json
+import time
 from config import KAFKA_BOOTSTRAP_SERVERS, INFLUXDB_URL, INFLUXDB_TOKEN, INFLUXDB_ORG, INFLUXDB_BUCKET
 
 client = InfluxDBClient(
@@ -12,13 +14,19 @@ client = InfluxDBClient(
 
 write_api = client.write_api(write_options=SYNCHRONOUS)
 
-consumer = KafkaConsumer(
-    'waste-stream',
-    bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-    group_id='influxdb-consumer-group',
-    value_deserializer=lambda v: json.loads(v.decode('utf-8')),
-    auto_offset_reset='earliest',
-)
+while True:
+    try:
+        consumer = KafkaConsumer(
+            'waste-stream',
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            group_id='influxdb-consumer-group',
+            value_deserializer=lambda v: json.loads(v.decode('utf-8')),
+            auto_offset_reset='earliest',
+        )
+        break
+    except NoBrokersAvailable:
+        print("Kafka not ready, retrying in 3s...")
+        time.sleep(3)
 
 for msg in consumer:
     data = msg.value

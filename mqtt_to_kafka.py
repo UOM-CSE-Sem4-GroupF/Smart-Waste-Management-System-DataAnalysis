@@ -1,12 +1,26 @@
 import json
+import time
 import paho.mqtt.client as mqtt
 from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
 from config import MQTT_HOST, MQTT_PORT, KAFKA_BOOTSTRAP_SERVERS
 
-producer = KafkaProducer(
-    bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+def create_mqtt_client():
+    if hasattr(mqtt, "CallbackAPIVersion"):
+        return mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
+    return mqtt.Client()
+
+
+while True:
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        )
+        break
+    except NoBrokersAvailable:
+        print("Kafka not ready, retrying in 3s...")
+        time.sleep(3)
 
 KAFKA_TOPIC = 'waste-stream'
 
@@ -17,8 +31,15 @@ def on_message(client, userdata, msg):
     producer.send(KAFKA_TOPIC, data)
     print("Sent to kafka:", data)
 
-mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
-mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
+mqtt_client = create_mqtt_client()
+
+while True:
+    try:
+        mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
+        break
+    except Exception as e:
+        print(f"MQTT not ready ({e}), retrying in 3s...")
+        time.sleep(3)
 
 mqtt_client.subscribe("waste/#")
 

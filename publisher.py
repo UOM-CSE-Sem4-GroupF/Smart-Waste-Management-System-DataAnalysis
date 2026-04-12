@@ -4,8 +4,21 @@ import json
 import random
 from config import MQTT_HOST, MQTT_PORT
 
-client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
-client.connect(MQTT_HOST, MQTT_PORT, 60)
+def create_mqtt_client():
+    if hasattr(mqtt, "CallbackAPIVersion"):
+        return mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
+    return mqtt.Client()
+
+
+client = create_mqtt_client()
+
+while True:
+    try:
+        client.connect(MQTT_HOST, MQTT_PORT, 60)
+        break
+    except Exception as e:
+        print(f"MQTT not ready ({e}), retrying in 3s...")
+        time.sleep(3)
 
 i = 0
 bins = ["bin1","bin2","bin3","bin4","bin5"]

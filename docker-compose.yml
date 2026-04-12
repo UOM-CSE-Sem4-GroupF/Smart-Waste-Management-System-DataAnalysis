@@ -1,6 +1,4 @@
 
-version: '3.8'
-
 services:
 
   mosquitto:
@@ -101,6 +99,66 @@ services:
       - SPARK_MASTER=spark://spark-master:7077
     networks:
       - waste-network
+
+  mqtt-to-kafka:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: mqtt-to-kafka
+    command: python -u mqtt_to_kafka.py
+    env_file:
+      - .env
+    environment:
+      MQTT_HOST: mosquitto
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 29092
+    depends_on:
+      - mosquitto
+      - kafka
+    restart: unless-stopped
+    networks:
+      - waste-network
+    profiles:
+      - apps
+
+  influxdb-consumer-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: influxdb-consumer-app
+    command: python -u influxdb_consumer.py
+    env_file:
+      - .env
+    environment:
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 29092
+      INFLUXDB_HOST: influxdb
+    depends_on:
+      - kafka
+      - influxdb
+    restart: unless-stopped
+    networks:
+      - waste-network
+    profiles:
+      - apps
+
+  publisher-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: publisher-app
+    command: python -u publisher.py
+    env_file:
+      - .env
+    environment:
+      MQTT_HOST: mosquitto
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+    networks:
+      - waste-network
+    profiles:
+      - apps
 
 volumes:
   influxdb-storage:
