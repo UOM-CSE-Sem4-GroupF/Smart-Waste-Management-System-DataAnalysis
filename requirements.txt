@@ -1,5 +1,0 @@
-paho-mqtt==1.6.1
-kafka-python==2.0.2
-influxdb-client==1.18.0
-python-dotenv==1.0.0
-pyspark==3.3.0

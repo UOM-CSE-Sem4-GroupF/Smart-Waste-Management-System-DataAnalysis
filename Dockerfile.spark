@@ -1,0 +1,12 @@
+FROM bde2020/spark-master:3.3.0-hadoop3.3
+
+WORKDIR /app
+
+COPY requirements.spark.txt /app/requirements.spark.txt
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+	&& python3 -m pip install --no-cache-dir -r /app/requirements.spark.txt
+
+COPY spark_stream.py /app/spark_stream.py
+
+ENV PYSPARK_PYTHON=/usr/bin/python3
+ENV PYSPARK_DRIVER_PYTHON=/usr/bin/python3

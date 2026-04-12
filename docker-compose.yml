@@ -101,23 +101,25 @@ services:
       - waste-network
 
   spark-stream-app:
-    image: bde2020/spark-master:3.3.0-hadoop3.3
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
     container_name: spark-stream-app
-    command: /spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,org.postgresql:postgresql:42.6.0 /app/spark_stream.py
+    command: /spark/bin/spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,org.postgresql:postgresql:42.6.0 /app/spark_stream.py
     env_file:
       - .env
     environment:
       KAFKA_HOST: kafka
       KAFKA_PORT: 29092
       POSTGRES_HOST: postgres
+      INFLUXDB_HOST: influxdb
       SPARK_CHECKPOINT_DIR: /tmp/spark-checkpoint
       SPARK_DELEGATED: "1"
-    volumes:
-      - ./:/app
     depends_on:
       - spark-master
       - kafka
       - postgres
+      - influxdb
     restart: unless-stopped
     networks:
       - waste-network
@@ -166,6 +168,25 @@ services:
     profiles:
       - apps
 
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    depends_on:
+      - postgres
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "True"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    restart: unless-stopped
+    networks:
+      - waste-network
+    profiles:
+      - apps
+
   publisher-app:
     build:
       context: .
@@ -187,6 +208,7 @@ services:
 volumes:
   influxdb-storage:
   postgres-data:
+  pgadmin-data:
 
 networks:
   waste-network:

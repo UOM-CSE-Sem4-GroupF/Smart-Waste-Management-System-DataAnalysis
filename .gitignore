@@ -1,0 +1,15 @@
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment files
+.env
+
+# Editor settings
+.vscode/
+
+# Docker/runtime data
+pgadmin-data/
+postgres-data/
+influxdb-storage/
