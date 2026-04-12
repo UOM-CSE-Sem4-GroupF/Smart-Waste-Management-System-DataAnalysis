@@ -36,21 +36,22 @@ git checkout -b Kalana origin/Kalana
 
 ## Environment setup
 
-Create `.env` from template:
+This branch includes a ready-to-run `.env` with sample values.
+
+If `.env` is missing, create it from template:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Edit `.env` and set at least:
+Sample values currently used:
 
-1. `POSTGRES_PASSWORD`
-2. `INFLUXDB_TOKEN`
-3. Prediction frequency variables (minutes):
-  - `PRED_HORIZON_5MIN`
-  - `PRED_HORIZON_4HOUR`
-  - `PRED_HORIZON_1DAY`
-  - `PRED_HORIZON_7DAY`
+1. `POSTGRES_PASSWORD=WasteDbPass_2026_A9x7`
+2. `INFLUXDB_TOKEN=9Qc2uNf7Lp4RwXv8Hk1Zs6Ty3Ba0Md5Je2Ur9Pn4Gq7Vt1Cx8Wy6Kb3Hs5Nm2RjA`
+
+So you can run Docker immediately without editing `.env`.
+
+Only edit `.env` if you want custom values.
 
 ## Run from scratch (Docker)
 

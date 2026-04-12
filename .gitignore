@@ -3,9 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Environment files
-.env
-
 # Editor settings
 .vscode/
 
