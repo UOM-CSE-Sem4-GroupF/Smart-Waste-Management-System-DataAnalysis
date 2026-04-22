@@ -58,10 +58,12 @@ def run_consumer():
             # Print the data in a pretty format
             print(json.dumps(payload, indent=2), flush=True)
             
-            # Example logic: Trigger alert if bin is nearly full
-            fill_level = payload.get("payload", {}).get("sensors", {}).get("fill_level_percent", 0)
+            # Trigger alert if bin is nearly full
+            inner = payload.get("payload", {})
+            fill_level = inner.get("fill_level_pct", 0)
+            bin_id = inner.get("bin_id", message.key.decode('utf-8') if message.key else "unknown")
             if fill_level > 80:
-                logger.warning(f"🚨 ALERT: Bin {message.key.decode('utf-8')} is {fill_level}% full!")
+                logger.warning(f"ALERT: Bin {bin_id} is {fill_level}% full!")
 
     except Exception as e:
         logger.error(f"❌ Kafka Error: {e}")
