@@ -18,6 +18,31 @@ Schema source of truth:
 
 - ../db/init.sql
 
+## Database Mapping (Pipeline 1)
+
+Pipeline 1 reads and writes PostgreSQL using the real schema in ../db/init.sql.
+
+Metadata enrichment query source:
+
+- bins: id, zone_id, lat, lng, volume_litres, waste_category_id, active
+- city_zones: id, active
+- waste_categories: id, avg_kg_per_litre
+
+Pipeline 1 write target:
+
+- bin_current_state
+  - bin_id
+  - fill_level_pct
+  - estimated_weight_kg
+  - status
+  - urgency_score
+  - predicted_full_at
+  - fill_rate_pct_per_hour
+  - battery_level_pct
+  - last_reading_at
+  - last_collected_at
+  - updated_at
+
 ## Phase 1 Status
 
 Completed in this phase:

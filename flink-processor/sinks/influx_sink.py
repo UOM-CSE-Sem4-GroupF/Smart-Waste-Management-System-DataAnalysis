@@ -96,5 +96,42 @@ class InfluxSink:
             record=point,
         )
 
+    def write_zone_statistics(self, event: Dict[str, Any]) -> None:
+        point = Point("zone_statistics")
+
+        if event.get("zone_id") is not None:
+            point.tag("zone_id", str(event.get("zone_id")))
+        if event.get("dominant_waste_category") is not None:
+            point.tag("dominant_waste_category", str(event.get("dominant_waste_category")))
+
+        if isinstance(event.get("avg_fill_level"), (int, float)):
+            point.field("avg_fill_level", float(event["avg_fill_level"]))
+        if isinstance(event.get("urgent_bin_count"), int):
+            point.field("urgent_bin_count", int(event["urgent_bin_count"]))
+        if isinstance(event.get("critical_bin_count"), int):
+            point.field("critical_bin_count", int(event["critical_bin_count"]))
+        if isinstance(event.get("total_bins"), int):
+            point.field("total_bins", int(event["total_bins"]))
+        if isinstance(event.get("total_estimated_kg"), (int, float)):
+            point.field("total_estimated_kg", float(event["total_estimated_kg"]))
+        if isinstance(event.get("window_minutes"), int):
+            point.field("window_minutes", int(event["window_minutes"]))
+
+        breakdown = event.get("waste_category_breakdown")
+        if isinstance(breakdown, dict):
+            for category_id, count in breakdown.items():
+                if isinstance(count, int):
+                    point.field(f"category_{category_id}_count", count)
+
+        snapshot_ts = self._parse_timestamp(event.get("snapshot_at"))
+        if snapshot_ts is not None:
+            point.time(snapshot_ts, WritePrecision.MS)
+
+        self._write_api.write(
+            bucket=self.settings.influx_zone_bucket,
+            org=self.settings.influx_org,
+            record=point,
+        )
+
     def close(self) -> None:
         self._client.close()

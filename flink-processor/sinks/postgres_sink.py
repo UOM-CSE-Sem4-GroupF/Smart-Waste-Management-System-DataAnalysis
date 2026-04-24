@@ -42,6 +42,7 @@ class PostgresSink:
         return None
 
     def upsert_bin_current_state(self, record: Dict[str, Any]) -> None:
+        # Column mapping is intentionally aligned with db/init.sql::bin_current_state.
         conn = self._pool.getconn()
         try:
             with conn.cursor() as cur:
@@ -92,6 +93,44 @@ class PostgresSink:
         except (psycopg2.Error, KeyError) as exc:
             conn.rollback()
             raise PostgresSinkError(f"Failed to upsert bin_current_state: {exc}") from exc
+        finally:
+            self._pool.putconn(conn)
+
+    def insert_zone_snapshot(self, record: Dict[str, Any]) -> None:
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                query = sql.SQL(
+                    """
+                    INSERT INTO zone_snapshots (
+                        zone_id,
+                        snapshot_at,
+                        avg_fill_level,
+                        urgent_bin_count,
+                        total_bins,
+                        dominant_waste_category,
+                        total_estimated_kg,
+                        window_minutes
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                )
+                cur.execute(
+                    query,
+                    (
+                        record["zone_id"],
+                        self._to_datetime(record.get("snapshot_at")),
+                        record.get("avg_fill_level"),
+                        record.get("urgent_bin_count"),
+                        record.get("total_bins"),
+                        record.get("dominant_waste_category"),
+                        record.get("total_estimated_kg"),
+                        record.get("window_minutes"),
+                    ),
+                )
+            conn.commit()
+        except (psycopg2.Error, KeyError) as exc:
+            conn.rollback()
+            raise PostgresSinkError(f"Failed to insert zone_snapshots: {exc}") from exc
         finally:
             self._pool.putconn(conn)
 

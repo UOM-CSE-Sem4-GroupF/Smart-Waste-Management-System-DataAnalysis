@@ -14,6 +14,8 @@ class Settings:
     kafka_bootstrap_servers: str
     kafka_input_topic: str
     kafka_output_topic: str
+    kafka_zone_input_topic: str
+    kafka_zone_output_topic: str
     kafka_security_protocol: str
     kafka_sasl_mechanism: str
     kafka_username: str
@@ -30,9 +32,11 @@ class Settings:
     influx_token: str
     influx_raw_bucket: str
     influx_processed_bucket: str
+    influx_zone_bucket: str
 
     processing_timezone: str
     local_test_input_file: str
+    local_zone_test_input_file: str
 
 
 
@@ -51,6 +55,8 @@ def load_settings() -> Settings:
         kafka_bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
         kafka_input_topic=os.getenv("KAFKA_INPUT_TOPIC", "waste.bin.telemetry"),
         kafka_output_topic=os.getenv("KAFKA_OUTPUT_TOPIC", "waste.bin.processed"),
+        kafka_zone_input_topic=os.getenv("KAFKA_ZONE_INPUT_TOPIC", "waste.bin.processed"),
+        kafka_zone_output_topic=os.getenv("KAFKA_ZONE_OUTPUT_TOPIC", "waste.zone.statistics"),
         kafka_security_protocol=os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT"),
         kafka_sasl_mechanism=os.getenv("KAFKA_SASL_MECHANISM", "SCRAM-SHA-256"),
         kafka_username=os.getenv("KAFKA_USERNAME", ""),
@@ -65,6 +71,11 @@ def load_settings() -> Settings:
         influx_token=os.getenv("INFLUX_TOKEN", "my-super-token"),
         influx_raw_bucket=os.getenv("INFLUX_RAW_BUCKET", "bin_readings_raw"),
         influx_processed_bucket=os.getenv("INFLUX_PROCESSED_BUCKET", "bin_readings_processed"),
+        influx_zone_bucket=os.getenv("INFLUX_ZONE_BUCKET", "bin_readings_processed"),
         processing_timezone=os.getenv("PROCESSING_TIMEZONE", "UTC"),
         local_test_input_file=os.getenv("LOCAL_TEST_INPUT_FILE", "./tests/data/bin_telemetry_sample.jsonl"),
+        local_zone_test_input_file=os.getenv(
+            "LOCAL_ZONE_TEST_INPUT_FILE",
+            "./tests/data/processed_bin_sample.jsonl",
+        ),
     )

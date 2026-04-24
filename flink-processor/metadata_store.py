@@ -18,7 +18,12 @@ class MetadataStoreError(Exception):
 class MetadataStore:
     """
     PostgreSQL metadata store for bin enrichment.
-    
+
+    Schema mapping (db/init.sql):
+    - bins.id, bins.zone_id, bins.lat, bins.lng, bins.volume_litres, bins.waste_category_id, bins.active
+    - city_zones.id, city_zones.active
+    - waste_categories.id, waste_categories.avg_kg_per_litre
+
     Uses connection pooling and caching to efficiently fetch:
     - Bin metadata (zone_id, location, volume, waste category)
     - Waste category properties (avg_kg_per_litre)
@@ -98,7 +103,7 @@ class MetadataStore:
             try:
                 cur = conn.cursor()
 
-                # SQL query: JOIN bins with waste_categories to get all needed metadata
+                # Keep SQL fully aligned with db/init.sql table relationships.
                 query = sql.SQL("""
                     SELECT
                         b.id AS bin_id,
@@ -109,8 +114,11 @@ class MetadataStore:
                         b.waste_category_id,
                         wc.avg_kg_per_litre
                     FROM bins b
+                                        INNER JOIN city_zones cz ON b.zone_id = cz.id
                     LEFT JOIN waste_categories wc ON b.waste_category_id = wc.id
-                    WHERE b.id = %s AND b.active = TRUE
+                                        WHERE b.id = %s
+                                            AND b.active = TRUE
+                                            AND cz.active = TRUE
                 """)
 
                 cur.execute(query, (bin_id,))

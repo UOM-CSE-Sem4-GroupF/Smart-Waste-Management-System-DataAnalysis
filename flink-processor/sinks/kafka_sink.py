@@ -38,6 +38,16 @@ class KafkaSink:
             result.offset,
         )
 
+    def publish_zone_statistics(self, event: Dict[str, Any]) -> None:
+        future = self._producer.send(self.settings.kafka_zone_output_topic, event)
+        result = future.get(timeout=10)
+        logger.debug(
+            "Published zone statistics to Kafka topic=%s partition=%s offset=%s",
+            self.settings.kafka_zone_output_topic,
+            result.partition,
+            result.offset,
+        )
+
     def close(self) -> None:
         self._producer.flush()
         self._producer.close()
