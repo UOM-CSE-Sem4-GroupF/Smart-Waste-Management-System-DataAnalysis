@@ -1,0 +1,44 @@
+Himandi - Flink to InfluxDB Handoff (ready to use)
+
+Connection details
+Influx URL (from Docker network): http://influxdb:8086
+Influx URL (from host machine): http://localhost:8086
+Org: waste-org
+Token: my-super-token
+Main bucket to start with: bin_readings_processed
+Buckets available
+bin_readings_raw (1 year)
+bin_readings_processed (90 days)
+vehicle_positions (1 year)
+zone_statistics (2 years)
+waste_generation_trends (forever)
+Write contract for bin_readings_processed
+Measurement: bin_readings_processed
+Tags: bin_id, zone_id, waste_category, status
+Fields: fill_level_pct, urgency_score, estimated_weight_kg, fill_rate_pct_per_hour, predicted_full_hours
+Line protocol example
+bin_readings_processed,bin_id=BIN-001,zone_id=Z1,waste_category=food_waste,status=urgent fill_level_pct=82.5,urgency_score=78i,estimated_weight_kg=45.2,fill_rate_pct_per_hour=3.2,predicted_full_hours=6.5 1713942000000
+Notes:
+
+Integer fields must end with i (example: 78i)
+Use event timestamp if available
+Precision in this example is ms
+HTTP write endpoint
+POST http://influxdb:8086/api/v2/write?org=waste-org&bucket=bin_readings_processed&precision=ms
+Header: Authorization: Token my-super-token
+Body: line protocol rows
+
+Quick validation query
+from(bucket: "bin_readings_processed")
+|> range(start: -15m)
+|> filter(fn: (r) => r._measurement == "bin_readings_processed")
+|> sort(columns: ["_time"], desc: true)
+|> limit(n: 10)
+
+Safe rollout plan
+
+First send only 5-10 records
+Validate tags/fields in Influx UI
+Then enable continuous Flink sink
+Keep retry and dead-letter handling for malformed events
+Yes, your current structure is compatible. She can connect her Flink processor to your InfluxDB now.

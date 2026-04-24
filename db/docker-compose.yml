@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-waste_management}
+      POSTGRES_USER: ${POSTGRES_USER:-waste_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waste_admin_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U waste_admin -d waste_management" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  influxdb:
+    image: influxdb:2.7
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_INIT_USERNAME:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_INIT_PASSWORD:-admin12345}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_INIT_ORG:-waste-org}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_INIT_BUCKET:-waste-bootstrap}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_INIT_ADMIN_TOKEN:-my-super-token}
+    healthcheck:
+      test: [ "CMD", "influx", "ping", "--host", "http://localhost:8086" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  influxdb-setup:
+    image: influxdb:2.7
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      INFLUXDB_HOST: http://influxdb:8086
+      INFLUXDB_ORG: ${INFLUXDB_INIT_ORG:-waste-org}
+      INFLUXDB_TOKEN: ${INFLUXDB_INIT_ADMIN_TOKEN:-my-super-token}
+    volumes:
+      - ./influx/setup-buckets.sh:/scripts/setup-buckets.sh:ro
+    entrypoint: [ "sh", "/scripts/setup-buckets.sh" ]
+
+volumes:
+  postgres_data:
+  influxdb_data:
