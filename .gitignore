@@ -1,0 +1,48 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor settings and local workspace state
+.vscode/
+.idea/
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Build outputs
+build/
+dist/
+output/
+coverage/
+
+# Java / JVM build artifacts
+*.class
+target/
+
+# Node / frontend artifacts
+node_modules/
+.next/
+.nuxt/
+.parcel-cache/
