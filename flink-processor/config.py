@@ -14,6 +14,7 @@ class Settings:
     kafka_bootstrap_servers: str
     kafka_input_topic: str
     kafka_vehicle_location_topic: str
+    kafka_vehicle_deviation_topic: str
     kafka_output_topic: str
     kafka_zone_input_topic: str
     kafka_zone_output_topic: str
@@ -64,6 +65,10 @@ def load_settings() -> Settings:
         kafka_bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
         kafka_input_topic=os.getenv("KAFKA_INPUT_TOPIC", "waste.bin.telemetry"),
         kafka_vehicle_location_topic=os.getenv("KAFKA_VEHICLE_LOCATION_TOPIC", "waste.vehicle.location"),
+        kafka_vehicle_deviation_topic=os.getenv(
+            "KAFKA_VEHICLE_DEVIATION_TOPIC",
+            "waste.vehicle.deviation",
+        ),
         kafka_output_topic=os.getenv("KAFKA_OUTPUT_TOPIC", "waste.bin.processed"),
         kafka_zone_input_topic=os.getenv("KAFKA_ZONE_INPUT_TOPIC", "waste.bin.processed"),
         kafka_zone_output_topic=os.getenv("KAFKA_ZONE_OUTPUT_TOPIC", "waste.zone.statistics"),

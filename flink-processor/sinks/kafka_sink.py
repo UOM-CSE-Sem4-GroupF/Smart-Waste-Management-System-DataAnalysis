@@ -48,6 +48,16 @@ class KafkaSink:
             result.offset,
         )
 
+    def publish_vehicle_deviation(self, event: Dict[str, Any]) -> None:
+        future = self._producer.send(self.settings.kafka_vehicle_deviation_topic, event)
+        result = future.get(timeout=10)
+        logger.debug(
+            "Published vehicle deviation to Kafka topic=%s partition=%s offset=%s",
+            self.settings.kafka_vehicle_deviation_topic,
+            result.partition,
+            result.offset,
+        )
+
     def close(self) -> None:
         self._producer.flush()
         self._producer.close()
