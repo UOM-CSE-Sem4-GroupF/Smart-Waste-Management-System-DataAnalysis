@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -7,15 +8,21 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 from config import Settings
 
 
+logger = logging.getLogger(__name__)
+
+
 class InfluxSink:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self._client = InfluxDBClient(
-            url=self.settings.influx_url,
-            token=self.settings.influx_token,
-            org=self.settings.influx_org,
-        )
-        self._write_api = self._client.write_api(write_options=SYNCHRONOUS)
+        self._client = None
+        self._write_api = None
+        if self.settings.influx_enabled:
+            self._client = InfluxDBClient(
+                url=self.settings.influx_url,
+                token=self.settings.influx_token,
+                org=self.settings.influx_org,
+            )
+            self._write_api = self._client.write_api(write_options=SYNCHRONOUS)
 
     @staticmethod
     def _parse_timestamp(value: Any) -> Optional[datetime]:
@@ -27,6 +34,20 @@ class InfluxSink:
             except ValueError:
                 return None
         return None
+
+    def _write_point(self, bucket: str, point: Point) -> None:
+        if not self.settings.influx_enabled:
+            logger.info("Influx disabled; skipping write for bucket=%s", bucket)
+            return
+
+        if self._write_api is None:
+            raise RuntimeError("Influx write API is not initialized")
+
+        self._write_api.write(
+            bucket=bucket,
+            org=self.settings.influx_org,
+            record=point,
+        )
 
     def write_raw_event(self, event: Dict[str, Any]) -> None:
         payload = event.get("payload", {})
@@ -51,11 +72,7 @@ class InfluxSink:
         if ts is not None:
             point.time(ts, WritePrecision.MS)
 
-        self._write_api.write(
-            bucket=self.settings.influx_raw_bucket,
-            org=self.settings.influx_org,
-            record=point,
-        )
+        self._write_point(self.settings.influx_raw_bucket, point)
 
     def write_processed_event(self, event: Dict[str, Any]) -> None:
         point = Point("bin_readings_processed")
@@ -90,11 +107,7 @@ class InfluxSink:
         if event_ts is not None:
             point.time(event_ts, WritePrecision.MS)
 
-        self._write_api.write(
-            bucket=self.settings.influx_processed_bucket,
-            org=self.settings.influx_org,
-            record=point,
-        )
+        self._write_point(self.settings.influx_processed_bucket, point)
 
     def write_zone_statistics(self, event: Dict[str, Any]) -> None:
         point = Point("zone_statistics")
@@ -127,11 +140,38 @@ class InfluxSink:
         if snapshot_ts is not None:
             point.time(snapshot_ts, WritePrecision.MS)
 
-        self._write_api.write(
-            bucket=self.settings.influx_zone_bucket,
-            org=self.settings.influx_org,
-            record=point,
-        )
+        self._write_point(self.settings.influx_zone_bucket, point)
+
+    def write_vehicle_position(self, event: Dict[str, Any]) -> None:
+        if not self.settings.influx_enabled:
+            logger.info("Influx disabled; vehicle position event: %s", event)
+            return
+
+        point = Point("vehicle_positions")
+
+        vehicle_id = event.get("vehicle_id")
+        if vehicle_id is not None:
+            point.field("vehicle_id", str(vehicle_id))
+
+        latitude = event.get("latitude")
+        if isinstance(latitude, (int, float)):
+            point.field("latitude", float(latitude))
+
+        longitude = event.get("longitude")
+        if isinstance(longitude, (int, float)):
+            point.field("longitude", float(longitude))
+
+        job_id = event.get("job_id")
+        if job_id is not None:
+            point.field("job_id", str(job_id))
+
+        timestamp = self._parse_timestamp(event.get("timestamp"))
+        if timestamp is not None:
+            point.time(timestamp, WritePrecision.MS)
+            point.field("timestamp", timestamp.isoformat())
+
+        self._write_point("vehicle_positions", point)
 
     def close(self) -> None:
-        self._client.close()
+        if self._client is not None:
+            self._client.close()
