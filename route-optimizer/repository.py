@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Callable, Iterable
 
-from models import BinCandidate, VehicleProfile
+from models import BinCandidate, VehicleProfile, VehicleRoutePlan
 
 @dataclass(frozen=True)
 class EmergencySnapshotRows:
@@ -103,6 +104,76 @@ class RouteOptimizerRepository:
                 cursor.execute(query)
                 rows = cursor.fetchall()
                 return tuple(dict(row) for row in rows)
+
+    def route_plan_exists(self, job_id: str) -> bool:
+        query = "SELECT 1 FROM route_plans WHERE job_id = %s LIMIT 1"
+        with self._connection() as connection:
+            with self._dict_cursor(connection) as cursor:
+                cursor.execute(query, (job_id,))
+                row = cursor.fetchone()
+                return row is not None
+
+    def save_optimization_plan(
+        self,
+        job_id: str,
+        zone_id: int,
+        route_type: str,
+        routes: Iterable[VehicleRoutePlan],
+    ) -> int:
+        routes = tuple(routes)
+        if not routes:
+            return 0
+
+        insert_sql = """
+            INSERT INTO route_plans (
+                job_id,
+                vehicle_id,
+                route_type,
+                zone_id,
+                waypoints,
+                total_bins,
+                estimated_weight_kg,
+                estimated_distance_km,
+                estimated_minutes,
+                valid_for_date,
+                status
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'planned')
+        """
+
+        try:
+            from psycopg2.extras import Json
+        except ImportError:
+            # Fallback for tests; production path uses psycopg2 Json.
+            def Json(value):
+                return value
+
+        inserted_rows = 0
+        with self._connection() as connection:
+            try:
+                with connection.cursor() as cursor:
+                    for route in routes:
+                        waypoints = [stop.bin_id for stop in route.stops]
+                        cursor.execute(
+                            insert_sql,
+                            (
+                                job_id,
+                                route.vehicle_id,
+                                route_type,
+                                zone_id,
+                                Json(waypoints),
+                                len(route.stops),
+                                route.estimated_weight_kg,
+                                route.estimated_distance_km,
+                                route.estimated_minutes,
+                                date.today(),
+                            ),
+                        )
+                        inserted_rows += 1
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return inserted_rows
 
 
 def normalize_snapshot(trigger: dict[str, Any], rows: EmergencySnapshotRows) -> tuple[BinCandidate, ...]:

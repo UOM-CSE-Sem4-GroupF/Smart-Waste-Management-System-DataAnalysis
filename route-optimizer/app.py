@@ -6,7 +6,13 @@ from typing import Any
 
 from config import load_settings
 from repository import RouteOptimizerRepository
-from service import prepare_emergency_run
+from service import (
+    build_deterministic_job_id,
+    build_optimized_route_event,
+    persist_optimization_plan,
+    prepare_emergency_run,
+    publish_optimized_route_event,
+)
 from solver import solve_emergency_routes
 
 
@@ -37,14 +43,25 @@ def create_consumer(settings):
     )
 
 
+def create_producer(settings):
+    from kafka import KafkaProducer
+
+    return KafkaProducer(
+        bootstrap_servers=[settings.kafka_bootstrap_servers],
+        value_serializer=lambda value: json.dumps(value).encode("utf-8"),
+    )
+
+
 def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "route-optimizer", "version": "stage2"}
+    return {"status": "ok", "service": "route-optimizer", "version": "stage3"}
 
 
 def run() -> None:
     settings = load_settings()
     repository = create_repository(settings)
     consumer = create_consumer(settings)
+    producer = create_producer(settings)
+    processed_job_ids: set[str] = set()
 
     logger.info("route optimizer ready; waiting for urgent bin events")
     for message in consumer:
@@ -57,14 +74,30 @@ def run() -> None:
 
             snapshot = result.snapshot
             plan = solve_emergency_routes(snapshot)
+            job_id = build_deterministic_job_id(snapshot)
+            if job_id in processed_job_ids:
+                logger.info("skipping duplicate event for job_id=%s", job_id)
+                continue
+
+            persistence = persist_optimization_plan(repository, snapshot, plan, job_id)
+            if persistence.already_exists:
+                processed_job_ids.add(job_id)
+                logger.info("route plan already persisted for job_id=%s; skipping publish", job_id)
+                continue
+
+            output_event = build_optimized_route_event(snapshot, plan, job_id)
+            publish_optimized_route_event(producer, settings.kafka_output_topic, output_event)
+            processed_job_ids.add(job_id)
             logger.info(
-                "optimized zone=%s solver=%s urgent_bins=%s vehicles=%s routes=%s unassigned=%s total_weight=%.2f",
+                "optimized zone=%s job_id=%s solver=%s urgent_bins=%s vehicles=%s routes=%s unassigned=%s inserted_rows=%s total_weight=%.2f",
                 snapshot.zone_id,
+                job_id,
                 plan.solver_used,
                 result.urgent_bins_count,
                 result.vehicle_count,
                 len(plan.routes),
                 len(plan.unassigned_bins),
+                persistence.inserted_rows,
                 plan.total_weight_kg,
             )
         except Exception as exc:
