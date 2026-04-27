@@ -54,3 +54,32 @@ class EmergencyOptimizationSnapshot:
     @property
     def total_estimated_weight_kg(self) -> float:
         return round(sum(bin_candidate.estimated_weight_kg for bin_candidate in self.urgent_bins), 2)
+
+
+@dataclass(frozen=True)
+class RouteStop:
+    sequence_number: int
+    bin_id: str
+    estimated_arrival_min: int
+
+
+@dataclass(frozen=True)
+class VehicleRoutePlan:
+    vehicle_id: str
+    route_type: str
+    stops: tuple[RouteStop, ...]
+    estimated_weight_kg: float
+    estimated_distance_km: float
+    estimated_minutes: int
+
+
+@dataclass(frozen=True)
+class OptimizationPlan:
+    zone_id: int
+    solver_used: str
+    routes: tuple[VehicleRoutePlan, ...]
+    unassigned_bins: tuple[str, ...]
+
+    @property
+    def total_weight_kg(self) -> float:
+        return round(sum(route.estimated_weight_kg for route in self.routes), 2)

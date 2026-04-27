@@ -7,6 +7,7 @@ from typing import Any
 from config import load_settings
 from repository import RouteOptimizerRepository
 from service import prepare_emergency_run
+from solver import solve_emergency_routes
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -37,7 +38,7 @@ def create_consumer(settings):
 
 
 def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "route-optimizer", "version": "stage1"}
+    return {"status": "ok", "service": "route-optimizer", "version": "stage2"}
 
 
 def run() -> None:
@@ -55,12 +56,16 @@ def run() -> None:
                 continue
 
             snapshot = result.snapshot
+            plan = solve_emergency_routes(snapshot)
             logger.info(
-                "prepared emergency snapshot zone=%s urgent_bins=%s vehicles=%s total_weight=%.2f",
+                "optimized zone=%s solver=%s urgent_bins=%s vehicles=%s routes=%s unassigned=%s total_weight=%.2f",
                 snapshot.zone_id,
+                plan.solver_used,
                 result.urgent_bins_count,
                 result.vehicle_count,
-                snapshot.total_estimated_weight_kg,
+                len(plan.routes),
+                len(plan.unassigned_bins),
+                plan.total_weight_kg,
             )
         except Exception as exc:
             logger.exception("failed to prepare optimization input: %s", exc)
