@@ -1,10 +1,14 @@
 import unittest
+import os
 from pyspark.sql import SparkSession
 from job import process_data
 
 class TestSparkJob(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        python_exe = os.environ.get("PYSPARK_PYTHON") or os.environ.get("PYTHON_EXECUTABLE") or os.sys.executable
+        os.environ["PYSPARK_PYTHON"] = python_exe
+        os.environ["PYSPARK_DRIVER_PYTHON"] = python_exe
         cls.spark = SparkSession.builder \
             .master("local[1]") \
             .appName("SparkUnitTests") \
