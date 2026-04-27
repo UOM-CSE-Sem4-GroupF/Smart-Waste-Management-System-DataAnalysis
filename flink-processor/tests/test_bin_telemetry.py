@@ -329,11 +329,11 @@ class TestMetadataStore:
 
 
 class TestProcessingLogic:
-    """Tests for enrichment + weight and urgency calculations."""
+    """Tests for enrichment + weighted priority score calculations."""
 
-    def test_process_computes_weight_and_status(self):
-        metadata_store = MagicMock()
-        metadata_store.get_bin_metadata.return_value = {
+    @staticmethod
+    def _base_metadata():
+        return {
             "bin_id": "BIN-001",
             "zone_id": 1,
             "latitude": 6.927079,
@@ -342,64 +342,155 @@ class TestProcessingLogic:
             "waste_category_id": 1,
             "avg_kg_per_litre": 0.9,
         }
-        processor = BinTelemetryProcessor(metadata_store)
 
-        raw = {
-            "payload": {
-                "bin_id": "BIN-001",
-                "fill_level_pct": 60,
-                "battery_level_pct": 88,
-                "timestamp": "2026-04-24T12:00:00Z",
-            }
+    @staticmethod
+    def _base_payload():
+        return {
+            "bin_id": "BIN-001",
+            "fill_level_pct": 40,
+            "battery_level_pct": 88,
+            "timestamp": "2026-04-24T12:00:00Z",
         }
 
-        processed = processor.process(raw)
+    def _process(self, payload_overrides=None, metadata_overrides=None):
+        metadata_store = MagicMock()
+        metadata = self._base_metadata()
+        if metadata_overrides:
+            metadata.update(metadata_overrides)
+        metadata_store.get_bin_metadata.return_value = metadata
+
+        processor = BinTelemetryProcessor(metadata_store)
+
+        payload = self._base_payload()
+        if payload_overrides:
+            payload.update(payload_overrides)
+
+        return processor.process({"payload": payload})
+
+    def test_process_computes_weight_and_status(self):
+        processed = self._process(
+            payload_overrides={
+                "fill_level_pct": 80,
+                "fill_rate_pct_per_hour": 4.2,
+                "predicted_full_at": "2026-04-24T14:30:00Z",
+                "alerts": [],
+            }
+        )
 
         assert processed is not None
         assert processed["status"] == "monitor"
-        assert processed["urgency_score"] == 60
-        assert processed["estimated_weight_kg"] == pytest.approx(12960.0)
+        assert processed["urgency_score"] == processed["priority_score"]
+        assert 0 <= processed["priority_score"] <= 100
+        assert processed["estimated_weight_kg"] == pytest.approx(17280.0)
         assert processed["zone_id"] == 1
+        assert processed["fill_rate_pct_per_hour"] == 4.2
+        assert processed["predicted_full_at"] == "2026-04-24T14:30:00Z"
+        assert processed["timestamp"] == "2026-04-24T12:00:00Z"
         assert processed["anomaly_detected"] is False
         assert processed["anomaly_flags"] == []
 
+    def test_high_fill_level_increases_priority(self):
+        low_fill = self._process(payload_overrides={"fill_level_pct": 20})
+        high_fill = self._process(payload_overrides={"fill_level_pct": 90})
+
+        assert low_fill is not None
+        assert high_fill is not None
+        assert high_fill["priority_score"] > low_fill["priority_score"]
+
+    def test_long_time_since_collection_increases_priority(self):
+        short_time = self._process(payload_overrides={"hours_since_last_collection": 2})
+        long_time = self._process(payload_overrides={"hours_since_last_collection": 24})
+
+        assert short_time is not None
+        assert long_time is not None
+        assert long_time["priority_score"] > short_time["priority_score"]
+
+    def test_soon_predicted_full_increases_priority(self):
+        later_full = self._process(payload_overrides={"hours_until_full": 30})
+        soon_full = self._process(payload_overrides={"hours_until_full": 1})
+
+        assert later_full is not None
+        assert soon_full is not None
+        assert soon_full["priority_score"] > later_full["priority_score"]
+
+    def test_high_distance_cost_increases_priority(self):
+        near_vehicle = self._process(payload_overrides={"distance_to_nearest_vehicle_km": 1})
+        far_vehicle = self._process(payload_overrides={"distance_to_nearest_vehicle_km": 10})
+
+        assert near_vehicle is not None
+        assert far_vehicle is not None
+        assert far_vehicle["priority_score"] > near_vehicle["priority_score"]
+
+    def test_high_risk_factor_increases_priority(self):
+        low_risk = self._process(payload_overrides={"risk_factor": 10})
+        high_risk = self._process(payload_overrides={"risk_factor": 95})
+
+        assert low_risk is not None
+        assert high_risk is not None
+        assert high_risk["priority_score"] > low_risk["priority_score"]
+
     @pytest.mark.parametrize(
-        "fill_level,expected_status",
+        "payload_overrides,expected_status",
         [
-            (49.99, "normal"),
-            (50, "monitor"),
-            (74.99, "monitor"),
-            (75, "urgent"),
-            (90, "urgent"),
-            (90.01, "critical"),
+            ({"fill_level_pct": 20}, "normal"),
+            ({"fill_level_pct": 80}, "monitor"),
+            ({"fill_level_pct": 80, "hours_since_last_collection": 24, "hours_until_full": 6}, "urgent"),
+            (
+                {
+                    "fill_level_pct": 100,
+                    "hours_since_last_collection": 24,
+                    "hours_until_full": 1,
+                    "distance_to_nearest_vehicle_km": 10,
+                    "risk_factor": 100,
+                },
+                "critical",
+            ),
         ],
     )
-    def test_process_status_boundaries(self, fill_level, expected_status):
-        metadata_store = MagicMock()
-        metadata_store.get_bin_metadata.return_value = {
-            "bin_id": "BIN-001",
-            "zone_id": 1,
-            "latitude": 6.0,
-            "longitude": 79.0,
-            "volume_litres": 1.0,
-            "waste_category_id": 1,
-            "avg_kg_per_litre": 1.0,
-        }
-        processor = BinTelemetryProcessor(metadata_store)
-
-        raw = {
-            "payload": {
-                "bin_id": "BIN-001",
-                "fill_level_pct": fill_level,
-                "battery_level_pct": 70,
-                "timestamp": "2026-04-24T12:00:00Z",
-            }
-        }
-
-        processed = processor.process(raw)
+    def test_process_status_boundaries(self, payload_overrides, expected_status):
+        processed = self._process(payload_overrides=payload_overrides)
 
         assert processed is not None
         assert processed["status"] == expected_status
+
+    def test_priority_score_is_clamped_between_0_and_100(self):
+        low = self._process(
+            payload_overrides={
+                "fill_level_pct": 0,
+                "hours_since_last_collection": -100,
+                "hours_until_full": 100,
+                "distance_to_nearest_vehicle_km": -50,
+                "risk_factor": -10,
+            }
+        )
+        high = self._process(
+            payload_overrides={
+                "fill_level_pct": 100,
+                "hours_since_last_collection": 999,
+                "hours_until_full": -1,
+                "distance_to_nearest_vehicle_km": 999,
+                "risk_factor": 999,
+            }
+        )
+
+        assert low is not None
+        assert high is not None
+        assert 0 <= low["priority_score"] <= 100
+        assert 0 <= high["priority_score"] <= 100
+
+    def test_urgency_score_equals_priority_score(self):
+        processed = self._process(
+            payload_overrides={
+                "fill_level_pct": 82,
+                "hours_since_last_collection": 12,
+                "hours_until_full": 3,
+                "distance_to_nearest_vehicle_km": 4,
+                "risk_factor": 35,
+            }
+        )
+
+        assert processed is not None
+        assert processed["urgency_score"] == processed["priority_score"]
 
     def test_process_returns_none_when_metadata_missing(self):
         metadata_store = MagicMock()
