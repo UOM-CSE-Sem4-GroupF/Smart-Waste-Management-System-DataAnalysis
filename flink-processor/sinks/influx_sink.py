@@ -170,7 +170,7 @@ class InfluxSink:
             point.time(timestamp, WritePrecision.MS)
             point.field("timestamp", timestamp.isoformat())
 
-        self._write_point("vehicle_positions", point)
+        self._write_point(self.settings.influx_vehicle_bucket, point)
 
     def close(self) -> None:
         if self._client is not None:

@@ -36,6 +36,7 @@ class Settings:
     influx_raw_bucket: str
     influx_processed_bucket: str
     influx_zone_bucket: str
+    influx_vehicle_bucket: str
 
     processing_timezone: str
     local_test_input_file: str
@@ -87,7 +88,8 @@ def load_settings() -> Settings:
         influx_enabled=_get_bool("INFLUX_ENABLED", True),
         influx_raw_bucket=os.getenv("INFLUX_RAW_BUCKET", "bin_readings_raw"),
         influx_processed_bucket=os.getenv("INFLUX_PROCESSED_BUCKET", "bin_readings_processed"),
-        influx_zone_bucket=os.getenv("INFLUX_ZONE_BUCKET", "bin_readings_processed"),
+        influx_zone_bucket=os.getenv("INFLUX_ZONE_BUCKET", "zone_statistics"),
+        influx_vehicle_bucket=os.getenv("INFLUX_VEHICLE_BUCKET", "vehicle_positions"),
         processing_timezone=os.getenv("PROCESSING_TIMEZONE", "UTC"),
         local_test_input_file=os.getenv("LOCAL_TEST_INPUT_FILE", "./tests/data/bin_telemetry_sample.jsonl"),
         local_zone_test_input_file=os.getenv(

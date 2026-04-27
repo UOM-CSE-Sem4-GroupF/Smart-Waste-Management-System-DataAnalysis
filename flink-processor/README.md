@@ -1,230 +1,233 @@
-# Flink Processor - Pipeline 1 (Bin Telemetry)
+# Flink Processor Integration Guide
 
-## Scope
+This module runs four streaming pipelines together for the Smart Waste Management System data analysis flow.
 
-This service will implement Pipeline 1 only:
+## Service Overview
 
-Kafka -> Processing -> PostgreSQL + InfluxDB + Kafka
+The Flink processor consumes bin telemetry and vehicle location events, enriches data with PostgreSQL metadata, publishes derived Kafka events, and writes time-series metrics to InfluxDB.
 
-Input topic:
+Pipelines:
 
-- waste.bin.telemetry
+1. Pipeline 1 - Bin Telemetry Processor (`job.py`)
+2. Pipeline 2 - Zone Aggregation (`job_zone.py`)
+3. Pipeline 3 - Vehicle Deviation Detector (`job_deviation.py`)
+4. Pipeline 4 - Vehicle Position Historian (`job_vehicle.py`)
 
-Output topic:
+## Shared Configuration Check
 
-- waste.bin.processed
+All four pipelines import the same `load_settings()` from `config.py`, so they share one `.env` source for:
 
-Schema source of truth:
+- Kafka broker/auth configuration
+- PostgreSQL connection
+- InfluxDB connection and bucket names
+- Topic names
 
-- ../db/init.sql
+Required topics used across the integrated flow:
 
-## Database Mapping (Pipeline 1)
+- `waste.bin.telemetry`
+- `waste.bin.processed`
+- `waste.zone.statistics`
+- `waste.vehicle.location`
+- `waste.vehicle.deviation`
 
-Pipeline 1 reads and writes PostgreSQL using the real schema in ../db/init.sql.
+## Pipeline IO Summary
 
-Metadata enrichment query source:
+### Input Topics
 
-- bins: id, zone_id, lat, lng, volume_litres, waste_category_id, active
-- city_zones: id, active
-- waste_categories: id, avg_kg_per_litre
+- Pipeline 1: `waste.bin.telemetry`
+- Pipeline 2: `waste.bin.processed`
+- Pipeline 3: `waste.vehicle.location`
+- Pipeline 4: `waste.vehicle.location`
 
-Pipeline 1 write target:
+### Output Topics
 
-- bin_current_state
-  - bin_id
-  - fill_level_pct
-  - estimated_weight_kg
-  - status
-  - urgency_score
-  - predicted_full_at
-  - fill_rate_pct_per_hour
-  - battery_level_pct
-  - last_reading_at
-  - last_collected_at
-  - updated_at
+- Pipeline 1: `waste.bin.processed`
+- Pipeline 2: `waste.zone.statistics`
+- Pipeline 3: `waste.vehicle.deviation`
+- Pipeline 4: no Kafka output (writes InfluxDB only)
 
-## Phase 1 Status
+## PostgreSQL Tables Used
 
-Completed in this phase:
+From schema in `../db/init.sql`:
 
-- Project structure scaffolded
-- Environment/config loading implemented
-- Entry point created with mode argument (kafka/local)
-- Placeholder classes created for processor and sinks
+- Read: `bins`, `city_zones`, `waste_categories` (pipeline 1 metadata), `route_plans` (pipeline 3 route lookup)
+- Write: `bin_current_state` (pipeline 1), `zone_snapshots` (pipeline 2)
 
-Not implemented yet:
+## InfluxDB Measurements Used
 
-- Kafka parsing and validation
-- PostgreSQL metadata enrichment
-- Computation and anomaly logic
-- InfluxDB/PostgreSQL/Kafka sink operations
-- Full PyFlink stream wiring
+- `bin_readings_raw`
+- `bin_readings_processed`
+- `zone_statistics`
+- `vehicle_positions`
 
-## Phase 2 Status
+Default bucket mapping in `.env` / `.env.example`:
 
-Completed in this phase:
+- `INFLUX_RAW_BUCKET=bin_readings_raw`
+- `INFLUX_PROCESSED_BUCKET=bin_readings_processed`
+- `INFLUX_ZONE_BUCKET=zone_statistics`
+- `INFLUX_VEHICLE_BUCKET=vehicle_positions`
 
-- JSON parsing from Kafka messages with nested payload extraction
-- Validation for all required fields: bin_id, fill_level_pct, battery_level_pct, timestamp
-- Type checking and range validation (0-100 for numeric percentages)
-- ISO 8601 timestamp parsing with timezone support
-- Comprehensive test suite: 22 tests, all passing
-  - Valid event parsing
-  - Extra optional fields handling
-  - Missing field detection
-  - Type validation
-  - Range validation
-  - Timestamp format validation
+## Environment Variables
 
-Not implemented yet:
+Core variables:
 
-- PostgreSQL metadata enrichment
-- Computation and anomaly logic
-- InfluxDB/PostgreSQL/Kafka sink operations
-- Full PyFlink stream wiring
+- `APP_ENV`, `LOG_LEVEL`
+- `KAFKA_BOOTSTRAP_SERVERS`
+- `KAFKA_INPUT_TOPIC`
+- `KAFKA_OUTPUT_TOPIC`
+- `KAFKA_ZONE_INPUT_TOPIC`
+- `KAFKA_ZONE_OUTPUT_TOPIC`
+- `KAFKA_VEHICLE_LOCATION_TOPIC`
+- `KAFKA_VEHICLE_DEVIATION_TOPIC`
+- `KAFKA_SECURITY_PROTOCOL`, `KAFKA_SASL_MECHANISM`, `KAFKA_USERNAME`, `KAFKA_PASSWORD`
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `INFLUX_URL`, `INFLUX_ORG`, `INFLUX_TOKEN`, `INFLUX_ENABLED`
+- `INFLUX_RAW_BUCKET`, `INFLUX_PROCESSED_BUCKET`, `INFLUX_ZONE_BUCKET`, `INFLUX_VEHICLE_BUCKET`
 
-## Phase 3 Status
+Setup:
 
-Completed in this phase:
+```bash
+cp .env.example .env
+```
 
-- PostgreSQL metadata enrichment using schema in ../db/init.sql
-- Bin lookup from bins + waste_categories (connection pool + cache)
-- Metadata test coverage with mocked DB pool
+## Docker Run (All Pipelines Together)
 
-## Phase 4 Status
+To avoid changing the root `docker-compose.yml`, this module includes a dedicated integration stack:
 
-Completed in this phase:
+- Compose file: `flink-processor/docker-compose.integration.yml`
 
-- Processor enrichment flow via metadata store in process()
-- Estimated weight calculation: fill*level_pct * volume*litres * avg_kg_per_litre
-- Urgency classification implemented:
-  - fill_level_pct < 50 -> normal
-  - 50 <= fill_level_pct < 75 -> monitor
-  - 75 <= fill_level_pct <= 90 -> urgent
-  - fill_level_pct > 90 -> critical
-- urgency_score set from fill_level_pct (rounded to nearest integer)
-- Unit tests added for status boundaries and computed fields
+From repository root:
 
-Not implemented yet:
+```bash
+docker compose -f flink-processor/docker-compose.integration.yml up --build
+```
 
-- InfluxDB/PostgreSQL/Kafka sink operations
-- Full PyFlink stream wiring
+This starts:
 
-## Phase 5 Status
+- Kafka
+- PostgreSQL (with `db/init.sql`)
+- InfluxDB + bucket setup script
+- Flink Pipeline 1, 2, 3, and 4 containers
 
-Completed in this phase:
+Stop and remove:
 
-- Anomaly detection added in processing output
-  - low_battery when battery_level_pct < 20
-  - weak_signal when optional signal_strength < -100 dBm
-  - abnormal_temperature when optional temperature_c is outside [-20, 70]
-- Output now includes anomaly_detected and anomaly_flags
-- Unit tests added for anomaly scenarios
+```bash
+docker compose -f flink-processor/docker-compose.integration.yml down -v
+```
 
-Not implemented yet:
+## Local Run (Without Docker for Flink Code)
 
-- InfluxDB/PostgreSQL/Kafka sink operations
-- Full PyFlink stream wiring
-
-## Phase 6 Status
-
-Completed in this phase:
-
-- Kafka sink implemented to publish processed events to waste.bin.processed
-- PostgreSQL sink implemented with UPSERT to bin_current_state using real schema columns
-- Influx sink implemented for both raw and processed measurements
-  - raw -> bucket bin_readings_raw, measurement bin_readings_raw
-  - processed -> bucket bin_readings_processed, measurement bin_readings_processed
-- Added mock-based sink tests that run without external services
-
-Not implemented yet:
-
-- Full PyFlink stream wiring
-
-## Phase 7 Status
-
-Completed in this phase:
-
-- End-to-end orchestration wired in job.py
-  - local mode: reads JSONL input file and processes events through all sinks
-  - kafka mode: consumes from waste.bin.telemetry and processes continuously
-- Added max-messages control for bounded smoke runs in both modes
-- Added per-event resilience (logs and continues on bad records)
-- Added graceful shutdown for all clients/pools (Kafka, PostgreSQL, Influx, metadata store)
-- Added job orchestration unit tests (local reader + event fan-out)
-
-Not implemented yet:
-
-- Full PyFlink DataStream API execution semantics
-
-## Phase 8 Status
-
-Completed in this phase:
-
-- Added optional pyflink-local mode in job.py using PyFlink DataStream API
-  - reads local JSONL events into a bounded stream
-  - executes processing fan-out through Influx, PostgreSQL, and Kafka via map function
-- Added helper for bounded local JSON event loading for DataStream execution
-- Improved main() resource lifecycle with lazy per-mode initialization and safe cleanup
-- Added tests for pyflink-local CLI mode and bounded JSON loading helper
-
-Pipeline 1 implementation status:
-
-- COMPLETE for requested pipeline behavior (ingest, enrich, compute, anomaly, sink fan-out, runtime modes)
-
-## Folder Structure
-
-flink-processor/
-
-- job.py
-- config.py
-- models.py
-- metadata_store.py
-- sinks/
-  - influx_sink.py
-  - postgres_sink.py
-  - kafka_sink.py
-- processors/
-  - bin_telemetry.py
-- tests/
-  - test_bin_telemetry.py
-- requirements.txt
-- Dockerfile
-- .env.example
-- README.md
-
-## Configuration
-
-Copy .env.example to .env and adjust values for your environment.
-
-Key groups:
-
-- Kafka: bootstrap server, topics, SASL settings
-- PostgreSQL: host, port, db, user, password
-- InfluxDB: url, org, token, raw/processed buckets
-
-## Local Smoke Check
+You can run services in Docker and execute pipeline scripts locally.
 
 Install dependencies:
 
-python -m pip install -r requirements.txt
+```bash
+pip install -r flink-processor/requirements.txt
+```
 
-Run unit test scaffold:
+Run each pipeline (from `flink-processor/`):
 
-python -m pytest -q
-
-Run job scaffold:
-
+```bash
 python job.py --mode kafka
+python job_zone.py --mode kafka
+python job_deviation.py --mode kafka
+python job_vehicle.py --mode kafka
+```
 
-Optional bounded local smoke run:
+## Tests
 
-python job.py --mode local --max-messages 10
+Run unit tests:
 
-Optional PyFlink DataStream local run:
+```bash
+cd flink-processor
+pytest -q
+```
 
-python job.py --mode pyflink-local --max-messages 10
+## End-to-End Scripts
 
-Expected output:
+Scripts are in `flink-processor/tests/e2e/`.
 
-- Logs indicate active pipeline processing for selected mode
+### 1. Send bin telemetry scenarios
+
+```bash
+python flink-processor/tests/e2e/send_bin_telemetry.py
+```
+
+Scenarios published:
+
+- normal bin
+- monitor bin
+- urgent bin
+- critical bin
+- low battery bin
+- rapid filling scenario (start + spike events)
+- possible tampering scenario (weak signal + abnormal temperature)
+
+### 2. Send vehicle location scenarios
+
+```bash
+python flink-processor/tests/e2e/send_vehicle_location.py
+```
+
+Scenarios published:
+
+- normal route-following GPS point
+- deviated GPS point
+- deviation lasting more than 2 minutes
+
+### 3. Verify outputs
+
+```bash
+python flink-processor/tests/e2e/verify_outputs.py
+```
+
+Verification covers:
+
+- Kafka topics:
+  - `waste.bin.processed`
+  - `waste.zone.statistics`
+  - `waste.vehicle.deviation`
+- PostgreSQL tables:
+  - `bin_current_state`
+  - `zone_snapshots`
+- Influx measurements:
+  - `bin_readings_raw`
+  - `bin_readings_processed`
+  - `zone_statistics`
+  - `vehicle_positions`
+
+If Kafka/PostgreSQL/Influx is configured as disabled in `.env` (for example empty/disabled host or `INFLUX_ENABLED=false`), verification logs that check as skipped instead of hard failing.
+
+## Expected Demo Flow
+
+1. Start Docker services.
+2. Send bin telemetry sample events.
+3. Confirm processed bin events in `waste.bin.processed`.
+4. Confirm `bin_current_state` updated.
+5. Confirm zone statistics are created.
+6. Send vehicle location events.
+7. Confirm `vehicle_positions` are written.
+8. Send deviated vehicle GPS points.
+9. Confirm `waste.vehicle.deviation` alert is published.
+
+## Troubleshooting
+
+- No Kafka output observed:
+  - Check broker endpoint (`KAFKA_BOOTSTRAP_SERVERS`) and topic names in `.env`.
+  - Verify all pipeline containers are running and healthy.
+
+- PostgreSQL connection errors:
+  - Confirm `POSTGRES_HOST`, port, database, user, password.
+  - Ensure schema was initialized from `db/init.sql`.
+
+- Influx writes missing:
+  - Check `INFLUX_ENABLED=true`.
+  - Confirm token/org/url values and bucket names.
+  - Validate bucket setup completed via `influxdb-setup` service.
+
+- Vehicle deviation alert not emitted:
+  - Ensure route plan exists for the same `vehicle_id` and `job_id` used by E2E GPS events.
+  - Send at least one deviated point and another deviated point more than 2 minutes later.
+
+- Zone snapshots not created:
+  - Ensure pipeline 1 is producing `waste.bin.processed` and pipeline 2 is consuming the same topic.
