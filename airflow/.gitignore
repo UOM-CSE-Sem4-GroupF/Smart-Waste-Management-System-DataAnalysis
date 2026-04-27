@@ -1,0 +1,7 @@
+# Ignore local Airflow files
+logs/
+*.db
+*.pid
+airflow.cfg
+webserver_config.py
+__pycache__/

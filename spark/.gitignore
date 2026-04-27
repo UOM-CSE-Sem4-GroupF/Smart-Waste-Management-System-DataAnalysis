@@ -1,0 +1,7 @@
+# Ignore local Spark files
+spark-warehouse/
+metastore_db/
+derby.log
+*.log
+__pycache__/
+.ivy2/
