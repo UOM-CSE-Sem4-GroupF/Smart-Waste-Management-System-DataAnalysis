@@ -1,5 +1,12 @@
 import sys
+import os
+import pytest
 from pyspark.sql import SparkSession
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_SPARK_DB_TESTS") != "1",
+    reason="Set RUN_SPARK_DB_TESTS=1 to run Spark/PostgreSQL integration test",
+)
 
 def test_db_connection():
     # Use localhost if running locally, 'postgres' if inside docker network

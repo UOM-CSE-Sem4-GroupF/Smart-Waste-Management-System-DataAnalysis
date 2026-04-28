@@ -1,14 +1,158 @@
 version: '3.8'
 
+x-common-env: &common-env
+  APP_ENV: ${APP_ENV:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  PROCESSING_TIMEZONE: ${PROCESSING_TIMEZONE:-UTC}
+
 services:
-  # MLflow Server - Central model hub
+  # ================================================================
+  # MESSAGE BROKER LAYER
+  # ================================================================
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: waste-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - waste-network
+    healthcheck:
+      test: echo ruok | nc localhost 2181
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: waste-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    networks:
+      - waste-network
+    healthcheck:
+      test: kafka-broker-api-versions --bootstrap-server localhost:29092
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka topic initialization
+  kafka-topics-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: waste-kafka-topics-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: >
+      bash -c '
+      echo "Creating Kafka topics...";
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.bin.telemetry --partitions 6 --replication-factor 1 || true;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.bin.processed --partitions 6 --replication-factor 1 || true;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.zone.statistics --partitions 3 --replication-factor 1 || true;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.vehicle.location --partitions 4 --replication-factor 1 || true;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.vehicle.deviation --partitions 2 --replication-factor 1 || true;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.routes.optimized --partitions 3 --replication-factor 1 || true;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.routine.schedule.trigger --partitions 1 --replication-factor 1 || true;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.model.retrained --partitions 1 --replication-factor 1 || true;
+      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.job.completed --partitions 3 --replication-factor 1 || true;
+      kafka-topics --list --bootstrap-server kafka:29092;
+      echo "✅ Kafka topics initialized"
+      '
+    networks:
+      - waste-network
+    profiles: ["init"]
+
+  # ================================================================
+  # DATA STORAGE LAYER
+  # ================================================================
+
+  # PostgreSQL for Airflow metadata
+  postgres-airflow:
+    image: postgres:15-alpine
+    container_name: waste-postgres-airflow
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow_secure_password
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+    networks:
+      - waste-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for Waste Management (F2 schema)
+  postgres-waste:
+    image: postgres:15-alpine
+    container_name: waste-postgres-waste
+    environment:
+      POSTGRES_DB: waste_management
+      POSTGRES_USER: waste_admin
+      POSTGRES_PASSWORD: waste_admin_password
+    volumes:
+      - postgres_waste_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - waste-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "waste_admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # InfluxDB for time-series data
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: waste-influxdb
+    environment:
+      INFLUXDB_DB: waste_metrics
+      INFLUXDB_ADMIN_USER: admin
+      INFLUXDB_ADMIN_PASSWORD: admin12345
+      INFLUXDB_INIT_MODE: setup
+      INFLUXDB_INIT_USERNAME: admin
+      INFLUXDB_INIT_PASSWORD: admin12345
+      INFLUXDB_INIT_ORG: waste-org
+      INFLUXDB_INIT_BUCKET: waste-bootstrap
+      INFLUXDB_INIT_ADMIN_TOKEN: my-super-token
+      INFLUXDB_INIT_RETENTION: 30d
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    networks:
+      - waste-network
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ================================================================
+  # ML & MODEL MANAGEMENT
+  # ================================================================
+
   mlflow:
     image: ghcr.io/mlflow/mlflow:latest
     container_name: waste-mlflow
     ports:
       - "5000:5000"
     environment:
-      MLFLOW_BACKEND_STORE_URI: sqlite:///mlflow/mlflow.db
+      MLFLOW_BACKEND_STORE_URI: sqlite:////mlflow/mlflow.db
       MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
     volumes:
       - mlflow_data:/mlflow
@@ -21,13 +165,12 @@ services:
       --backend-store-uri sqlite:////mlflow/mlflow.db
       --default-artifact-root /mlflow/artifacts
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
 
-  # ml-service - FastAPI prediction server
   ml-service:
     build:
       context: ./ml-service
@@ -36,16 +179,25 @@ services:
     ports:
       - "8000:8000"
     environment:
-      MLFLOW_TRACKING_URI: http://mlflow:5000
-      MLFLOW_FILL_MODEL_NAME: waste-fill-time-model
-      MLFLOW_ZONE_MODEL_NAME: waste-zone-generation-model
-      MLFLOW_ROUTE_MODEL_NAME: waste-route-score-model
-      MLFLOW_MODEL_STAGE: Production
+      <<: *common-env
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      MLFLOW_FILL_MODEL_NAME: ${MLFLOW_FILL_MODEL_NAME}
+      MLFLOW_ZONE_MODEL_NAME: ${MLFLOW_ZONE_MODEL_NAME}
+      MLFLOW_ROUTE_MODEL_NAME: ${MLFLOW_ROUTE_MODEL_NAME}
+      MLFLOW_MODEL_STAGE: ${MLFLOW_MODEL_STAGE}
+      SERVICE_VERSION: ${SERVICE_VERSION}
+      MLFLOW_REGISTRY_ENABLED: ${MLFLOW_REGISTRY_ENABLED}
+      ML_SERVICE_FALLBACK_MODE: ${ML_SERVICE_FALLBACK_MODE}
+      POSTGRES_HOST: postgres-waste
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     depends_on:
-      postgres:
+      postgres-waste:
         condition: service_healthy
       mlflow:
-        condition: service_started
+        condition: service_healthy
     networks:
       - waste-network
     healthcheck:
@@ -55,38 +207,107 @@ services:
       retries: 3
       start_period: 30s
 
-  # PostgreSQL for Airflow metadata
-  postgres:
-    image: postgres:15-alpine
-    container_name: waste-postgres
+  # ================================================================
+  # STREAM PROCESSING LAYER
+  # ================================================================
+
+  flink-processor:
+    build:
+      context: ./flink-processor
+      dockerfile: Dockerfile
+    container_name: waste-flink-processor
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      <<: *common-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_INPUT_TOPIC: ${KAFKA_TELEMETRY_TOPIC}
+      KAFKA_OUTPUT_TOPIC: ${KAFKA_PROCESSED_TOPIC}
+      KAFKA_VEHICLE_LOCATION_TOPIC: ${KAFKA_VEHICLE_LOCATION_TOPIC}
+      KAFKA_VEHICLE_DEVIATION_TOPIC: ${KAFKA_VEHICLE_DEVIATION_TOPIC}
+      KAFKA_ZONE_INPUT_TOPIC: ${KAFKA_PROCESSED_TOPIC}
+      KAFKA_ZONE_OUTPUT_TOPIC: ${KAFKA_ZONE_TOPIC}
+      KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL}
+      POSTGRES_HOST: postgres-waste
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      INFLUX_URL: ${INFLUX_URL}
+      INFLUX_ORG: ${INFLUX_ORG}
+      INFLUX_TOKEN: ${INFLUX_TOKEN}
+      INFLUX_ENABLED: ${INFLUX_ENABLED}
+      INFLUX_RAW_BUCKET: ${INFLUX_RAW_BUCKET}
+      INFLUX_PROCESSED_BUCKET: ${INFLUX_PROCESSED_BUCKET}
+      INFLUX_ZONE_BUCKET: ${INFLUX_ZONE_BUCKET}
+      INFLUX_VEHICLE_BUCKET: ${INFLUX_VEHICLE_BUCKET}
+      FLINK_INPUT_MODE: kafka
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres-waste:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      # kafka-topics-init runs as an initialization helper (profile: init).
+      # Remove strict dependency to allow compose to start; topics initializer
+      # runs separately when needed.
     networks:
       - waste-network
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    volumes:
+      - flink_logs:/opt/flink/logs
 
-  # Airflow - Orchestration layer
+  route-optimizer:
+    build:
+      context: ./route-optimizer
+      dockerfile: Dockerfile
+    container_name: waste-route-optimizer
+    environment:
+      <<: *common-env
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_INPUT_TOPIC: ${KAFKA_PROCESSED_TOPIC}
+      KAFKA_OUTPUT_TOPIC: ${KAFKA_ROUTES_TOPIC}
+      KAFKA_GROUP_ID: ${ROUTE_OPTIMIZER_GROUP_ID}
+      DB_HOST: postgres-waste
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      ROUTE_OPTIMIZER_URGENCY_THRESHOLD: ${ROUTE_OPTIMIZER_URGENCY_THRESHOLD}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres-waste:
+        condition: service_healthy
+      # kafka-topics-init is an init helper (run with `--profile init`)
+    networks:
+      - waste-network
+
+  # ================================================================
+  # BATCH PROCESSING & ORCHESTRATION
+  # ================================================================
+
   airflow:
     build:
       context: ./airflow
       dockerfile: Dockerfile
     container_name: waste-airflow
     environment:
+      <<: *common-env
       AIRFLOW_HOME: /airflow
       AIRFLOW__CORE__DAGS_FOLDER: /airflow/dags
       AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_secure_password@postgres-airflow:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      MLFLOW_TRACKING_URI: http://mlflow:5000
+      AIRFLOW__CORE__FERNET_KEY: 8PIl0qwvhYbCKvQwi-pTbYZHx-0OMpkr5j-3MN0ZGSQ=
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
       ML_SERVICE_URL: http://ml-service:8000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_SCHEDULE_TRIGGER_TOPIC: ${KAFKA_SCHEDULE_TRIGGER_TOPIC}
+      KAFKA_MODEL_RETRAINED_TOPIC: ${KAFKA_MODEL_RETRAINED_TOPIC}
+      POSTGRES_HOST: postgres-waste
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "8080:8080"
     volumes:
@@ -94,51 +315,92 @@ services:
       - ./airflow/logs:/airflow/logs
       - ./airflow/plugins:/airflow/plugins
     depends_on:
-      postgres:
+      postgres-airflow:
         condition: service_healthy
       mlflow:
-        condition: service_started
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      # kafka-topics-init is an init helper (run with `--profile init`)
     networks:
       - waste-network
     command: >
-      bash -c "airflow db init ; 
-               airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true ;
-               sleep 5 ;
-               airflow webserver -p 8080 &
-               sleep 10 ;
-               airflow scheduler"
+      bash -c "
+      airflow db init;
+      airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true;
+      sleep 5;
+      airflow webserver -p 8080 &
+      sleep 10;
+      airflow scheduler
+      "
 
-  # Kafka - Event streaming
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: waste-kafka
+  # Spark (optional, for batch analytics)
+  spark-master:
+    image: bitnami/spark:3.5.0
+    container_name: waste-spark-master
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      SPARK_MODE: master
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_USER: spark
     ports:
-      - "9092:9092"
-    depends_on:
-      - zookeeper
+      - "8081:8081"
+      - "7077:7077"
     networks:
       - waste-network
+    profiles: ["analytics"]
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: waste-zookeeper
+  spark-worker:
+    image: bitnami/spark:3.5.0
+    container_name: waste-spark-worker
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 2G
+      SPARK_WORKER_CORES: 2
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_USER: spark
+    depends_on:
+      - spark-master
     networks:
       - waste-network
+    profiles: ["analytics"]
+
+  # ================================================================
+  # TESTING & MONITORING
+  # ================================================================
+
+  app-consumer:
+    build:
+      context: ./app-consumer
+      dockerfile: Dockerfile
+    container_name: waste-app-consumer
+    environment:
+      <<: *common-env
+      KAFKA_BROKER: kafka:29092
+      KAFKA_TOPIC: ${KAFKA_TELEMETRY_TOPIC}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      # kafka-topics-init is an init helper (run with `--profile init`)
+    networks:
+      - waste-network
+    profiles: ["test"]
+
+# ================================================================
+# NETWORKS
+# ================================================================
 
 networks:
   waste-network:
     driver: bridge
 
+# ================================================================
+# VOLUMES
+# ================================================================
+
 volumes:
+  postgres_airflow_data:
+  postgres_waste_data:
+  influxdb_data:
   mlflow_data:
-  postgres_data:
+  flink_logs:
