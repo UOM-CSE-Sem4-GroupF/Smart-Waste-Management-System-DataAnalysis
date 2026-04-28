@@ -31,3 +31,18 @@ def health() -> HealthResponse:
         model_version=predictor.model_version,
         loaded_at=predictor.loaded_at,
     )
+
+
+@app.post("/internal/models/reload")
+def reload_models() -> dict:
+    """Reload models from MLflow. Called by Airflow after training."""
+    logger = logging.getLogger("ml-service")
+    logger.info("Reloading models from MLflow...")
+    predictor.load_models()
+    
+    return {
+        "status": "ok",
+        "model_version": predictor.model_version,
+        "mlflow_enabled": predictor.mlflow_enabled,
+        "loaded_at": predictor.loaded_at.isoformat() if predictor.loaded_at else None,
+    }
