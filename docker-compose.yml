@@ -1,0 +1,144 @@
+version: '3.8'
+
+services:
+  # MLflow Server - Central model hub
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: waste-mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: sqlite:///mlflow/mlflow.db
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    networks:
+      - waste-network
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ml-service - FastAPI prediction server
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    container_name: waste-ml-service
+    ports:
+      - "8000:8000"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_FILL_MODEL_NAME: waste-fill-time-model
+      MLFLOW_ZONE_MODEL_NAME: waste-zone-generation-model
+      MLFLOW_ROUTE_MODEL_NAME: waste-route-score-model
+      MLFLOW_MODEL_STAGE: Production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    networks:
+      - waste-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # PostgreSQL for Airflow metadata
+  postgres:
+    image: postgres:15-alpine
+    container_name: waste-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - waste-network
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Airflow - Orchestration layer
+  airflow:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    container_name: waste-airflow
+    environment:
+      AIRFLOW_HOME: /airflow
+      AIRFLOW__CORE__DAGS_FOLDER: /airflow/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      ML_SERVICE_URL: http://ml-service:8000
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow/dags:/airflow/dags
+      - ./airflow/logs:/airflow/logs
+      - ./airflow/plugins:/airflow/plugins
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    networks:
+      - waste-network
+    command: >
+      bash -c "airflow db init ; 
+               airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true ;
+               sleep 5 ;
+               airflow webserver -p 8080 &
+               sleep 10 ;
+               airflow scheduler"
+
+  # Kafka - Event streaming
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: waste-kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    networks:
+      - waste-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: waste-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - waste-network
+
+networks:
+  waste-network:
+    driver: bridge
+
+volumes:
+  mlflow_data:
+  postgres_data:
