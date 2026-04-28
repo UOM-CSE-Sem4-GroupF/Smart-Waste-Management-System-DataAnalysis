@@ -1,12 +1,52 @@
-# Python bytecode and caches
-__pycache__/
-*.pyc
-*.pyo
+# Environment files
+.env
+.env.*
+!.env.example
+/db/.env
 
-# Editor settings
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor settings and local workspace state
 .vscode/
+.idea/
 
-# Docker/runtime data
-pgadmin-data/
-postgres-data/
-influxdb-storage/
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Build outputs
+build/
+dist/
+output/
+coverage/
+
+# Java / JVM build artifacts
+*.class
+target/
+
+# Node / frontend artifacts
+node_modules/
+.next/
+.nuxt/
+.parcel-cache/

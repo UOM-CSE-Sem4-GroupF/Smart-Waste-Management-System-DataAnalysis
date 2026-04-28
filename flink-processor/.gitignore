@@ -1,0 +1,36 @@
+# Python cache/bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checker / tooling caches
+.mypy_cache/
+.ruff_cache/
+
+# Build/distribution artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE/editor metadata
+.idea/
+.vscode/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
