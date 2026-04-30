@@ -223,6 +223,10 @@ class BinTelemetryFlinkProcessor(KeyedProcessFunction):
         # Urgency and anomaly
         status, urgency_score = classify_urgency(fill_level, fill_rate)
 
+        # Fix numeric overflow for NUMERIC(6,3) column (max value 999.999)
+        if fill_rate is not None:
+            fill_rate = max(-999.999, min(fill_rate, 999.999))
+
         last_alert_ms = self._last_alert_ts.value() if self._last_alert_ts else None
         anomaly = detect_anomaly(fill_level, fill_rate, battery, event_ms, last_alert_ms)
         if anomaly and self._last_alert_ts:
@@ -245,6 +249,7 @@ class BinTelemetryFlinkProcessor(KeyedProcessFunction):
             "urgency_score": urgency_score,
             "fill_rate_pct_per_hour": fill_rate,
             "predicted_full_at": predicted_full_at,
+            "volume_litres": volume if volume is not None else 0.0,
             "alerts": [anomaly["type"]] if anomaly else [],
             "timestamp": timestamp_str,
             "anomaly_detected": bool(anomaly),

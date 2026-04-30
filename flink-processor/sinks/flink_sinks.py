@@ -24,37 +24,46 @@ logger = logging.getLogger(__name__)
 
 
 def _adapt_for_postgres(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Unpack nested spec payload into the flat dict PostgresSink.upsert_bin_current_state() expects."""
-    payload = event.get("payload", {})
+    """Unpack nested spec payload or handle flat dict for PostgresSink."""
+    payload = event.get("payload")
+    # Fallback to the event itself if it's already flat (Flink processor output)
+    data = payload if isinstance(payload, dict) else event
+    
     return {
-        "bin_id": payload.get("bin_id"),
-        "fill_level_pct": payload.get("fill_level_pct"),
-        "estimated_weight_kg": payload.get("estimated_weight_kg"),
-        "status": payload.get("status"),
-        "urgency_score": payload.get("urgency_score"),
-        "predicted_full_at": payload.get("predicted_full_at"),
-        "fill_rate_pct_per_hour": payload.get("fill_rate_pct_per_hour"),
-        "battery_level_pct": payload.get("battery_level_pct"),
-        "event_ts": event.get("timestamp"),  # top-level field in spec format
-        "last_collected_at": None,
+        "bin_id": data.get("bin_id"),
+        "fill_level_pct": data.get("fill_level_pct"),
+        "estimated_weight_kg": data.get("estimated_weight_kg"),
+        "status": data.get("status"),
+        "urgency_score": data.get("urgency_score"),
+        "predicted_full_at": data.get("predicted_full_at"),
+        "fill_rate_pct_per_hour": data.get("fill_rate_pct_per_hour"),
+        "battery_level_pct": data.get("battery_level_pct"),
+        "cluster_id": data.get("cluster_id"),
+        "zone_id": data.get("zone_id"),
+        "waste_category_id": data.get("waste_category_id"),
+        "volume_litres": data.get("volume_litres"),
+        "event_ts": event.get("timestamp") or data.get("event_ts"),
+        "last_reading_at": event.get("timestamp") or data.get("event_ts"),
     }
 
 
 def _adapt_for_influx_processed(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Unpack nested spec payload into the flat dict InfluxSink.write_processed_event() expects."""
-    payload = event.get("payload", {})
+    """Unpack nested spec payload or handle flat dict for InfluxSink."""
+    payload = event.get("payload")
+    data = payload if isinstance(payload, dict) else event
+    
     return {
-        "bin_id": payload.get("bin_id"),
-        "zone_id": payload.get("zone_id"),
-        "waste_category": payload.get("waste_category"),
-        "status": payload.get("status"),
-        "fill_level_pct": payload.get("fill_level_pct"),
-        "urgency_score": payload.get("urgency_score"),
-        "estimated_weight_kg": payload.get("estimated_weight_kg"),
-        "fill_rate_pct_per_hour": payload.get("fill_rate_pct_per_hour"),
-        "predicted_full_at": payload.get("predicted_full_at"),
-        "battery_level_pct": payload.get("battery_level_pct"),
-        "event_ts": event.get("timestamp"),
+        "bin_id": data.get("bin_id"),
+        "zone_id": data.get("zone_id"),
+        "waste_category": data.get("waste_category"),
+        "status": data.get("status"),
+        "fill_level_pct": data.get("fill_level_pct"),
+        "urgency_score": data.get("urgency_score"),
+        "estimated_weight_kg": data.get("estimated_weight_kg"),
+        "fill_rate_pct_per_hour": data.get("fill_rate_pct_per_hour"),
+        "predicted_full_at": data.get("predicted_full_at"),
+        "battery_level_pct": data.get("battery_level_pct"),
+        "event_ts": event.get("timestamp") or data.get("event_ts"),
     }
 
 
