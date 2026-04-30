@@ -45,10 +45,10 @@ def run_consumer():
             logger.info("✅ RECEIVED PROCESSED EVENT:")
             print(json.dumps(payload, indent=2), flush=True)
             
-            inner = payload.get("payload", {})
-            bin_id = inner.get("bin_id")
-            status = inner.get("status")
-            score = inner.get("urgency_score")
+            # Pull fields from the root level (V3 format)
+            bin_id = payload.get("bin_id")
+            status = payload.get("status")
+            score = payload.get("urgency_score")
             
             logger.info(f"Result: Bin={bin_id}, Status={status}, Score={score}")
 

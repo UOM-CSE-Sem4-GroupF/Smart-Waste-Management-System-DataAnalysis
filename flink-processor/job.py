@@ -128,8 +128,6 @@ def _build_kafka_consumer(settings) -> KafkaConsumer:
         "bootstrap_servers": settings.kafka_bootstrap_servers,
         "value_deserializer": lambda b: json.loads(b.decode("utf-8")),
         "auto_offset_reset": "latest",
-        "enable_auto_commit": True,
-        "group_id": "flink-pipeline1-processor",
         "api_version": (2, 5, 0),
     }
     if settings.kafka_username and settings.kafka_password:
@@ -141,7 +139,7 @@ def _build_kafka_consumer(settings) -> KafkaConsumer:
                 "sasl_plain_password": settings.kafka_password,
             }
         )
-    return KafkaConsumer(settings.kafka_input_topic, **consumer_config)
+    return KafkaConsumer(**consumer_config)
 
 
 def run_kafka_mode(
@@ -153,10 +151,17 @@ def run_kafka_mode(
     logger: logging.Logger,
     max_messages: int,
 ) -> None:
+    from kafka import TopicPartition
     consumer = _build_kafka_consumer(settings)
+    
+    # Manually assign partitions to bypass Group Coordinator hangs on remote clusters
+    partitions = [TopicPartition(settings.kafka_input_topic, p) for p in range(6)]
+    consumer.assign(partitions)
+    consumer.seek_to_end(*partitions)
+    
     processed_count = 0
     read_count = 0
-    logger.info("Kafka mode started. Consuming from topic: %s", settings.kafka_input_topic)
+    logger.info("Kafka mode started (Manual Assign). Consuming from topic: %s", settings.kafka_input_topic)
 
     try:
         for message in consumer:
