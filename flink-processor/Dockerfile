@@ -17,9 +17,14 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 WORKDIR /app
 
 # Download the Flink-Kafka SQL connector JAR to Flink's lib directory
-# This makes it available to the Flink engine automatically
 RUN curl -L https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.3.0-1.20/flink-sql-connector-kafka-3.3.0-1.20.jar \
     -o /opt/flink/lib/flink-sql-connector-kafka.jar
+
+# flink-sql-connector-kafka is a shaded fat JAR — it relocates Kafka classes to
+# org.apache.flink.kafka.shaded.*. Java's JAAS framework looks up ScramLoginModule
+# by its original class name, which only exists in the standalone kafka-clients JAR.
+RUN curl -L https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.3.0/kafka-clients-3.3.0.jar \
+    -o /opt/flink/lib/kafka-clients.jar
 
 # Install Python dependencies
 COPY requirements.txt .

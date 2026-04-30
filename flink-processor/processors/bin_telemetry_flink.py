@@ -122,7 +122,7 @@ class BinTelemetryFlinkProcessor(KeyedProcessFunction):
         from config import load_settings
         from metadata_store import MetadataStore
         from sinks.influx_sink import InfluxSink
-        from pyflink.common.state import ValueStateDescriptor
+        from pyflink.datastream.state import ValueStateDescriptor
         from pyflink.common import Types
 
         settings = load_settings()
