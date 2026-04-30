@@ -11,14 +11,21 @@ logger = logging.getLogger("test-producer")
 load_dotenv()
 
 BROKER = os.getenv("KAFKA_BROKER", "localhost:9092")
-TOPIC = "waste.bin.telemetry"
+USER = os.getenv("KAFKA_USER")
+PASS = os.getenv("KAFKA_PASS")
+TOPIC = os.getenv("KAFKA_TOPIC", "waste.bin.telemetry")
 
 def run_producer():
-    logger.info(f"📤 Sending test event to topic: {TOPIC}...")
+    logger.info(f"📤 Sending test event to topic: {TOPIC} on {BROKER}...")
 
     producer = KafkaProducer(
         bootstrap_servers=[BROKER],
-        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        security_protocol="SASL_PLAINTEXT",
+        sasl_mechanism="SCRAM-SHA-256",
+        sasl_plain_username=USER,
+        sasl_plain_password=PASS,
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        api_version=(2, 5, 0)
     )
 
     test_payload = {

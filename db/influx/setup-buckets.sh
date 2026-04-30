@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -e
 
 INFLUX_HOST="${INFLUXDB_HOST:-http://influxdb:8086}"
 INFLUX_ORG="${INFLUXDB_ORG:-waste-org}"

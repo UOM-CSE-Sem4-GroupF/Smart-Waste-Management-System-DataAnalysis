@@ -46,18 +46,7 @@ GRANT ALL ON SCHEMA f3 TO f3_app_user;
 GRANT ALL ON ALL TABLES IN SCHEMA f3 TO f3_app_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA f3 GRANT ALL ON TABLES TO f3_app_user;
 
--- Approved cross-schema reads: F3 may read these F2 tables
-GRANT USAGE ON SCHEMA f2 TO f3_app_user;
-GRANT SELECT ON f2.bin_current_state   TO f3_app_user;
-GRANT SELECT ON f2.bins                TO f3_app_user;
-GRANT SELECT ON f2.bin_clusters        TO f3_app_user;
-GRANT SELECT ON f2.waste_categories    TO f3_app_user;
-GRANT SELECT ON f2.city_zones          TO f3_app_user;
-GRANT SELECT ON f2.vehicles            TO f3_app_user;
-GRANT SELECT ON f2.vehicle_waste_categories TO f3_app_user;
-GRANT SELECT ON f2.route_plans         TO f3_app_user;
--- F3 also needs to write vehicle status on dispatch
-GRANT UPDATE (status, updated_at) ON f2.vehicles TO f3_app_user;
+
 
 
 -- =============================================================
@@ -1281,3 +1270,21 @@ WHERE d.status != 'decommissioned';
 --   idx_devices_config_pending  → devices with pending config
 --
 -- =============================================================
+
+
+-- =============================================================
+-- CROSS-SCHEMA GRANTS
+-- =============================================================
+-- Approved cross-schema reads: F3 may read these F2 tables
+GRANT USAGE ON SCHEMA f2 TO f3_app_user;
+GRANT SELECT ON f2.bin_current_state   TO f3_app_user;
+GRANT SELECT ON f2.bins                TO f3_app_user;
+GRANT SELECT ON f2.bin_clusters        TO f3_app_user;
+GRANT SELECT ON f2.waste_categories    TO f3_app_user;
+GRANT SELECT ON f2.city_zones          TO f3_app_user;
+GRANT SELECT ON f2.vehicles            TO f3_app_user;
+GRANT SELECT ON f2.vehicle_waste_categories TO f3_app_user;
+GRANT SELECT ON f2.route_plans         TO f3_app_user;
+-- F3 also needs to write vehicle status on dispatch
+GRANT UPDATE (status, updated_at) ON f2.vehicles TO f3_app_user;
+

@@ -130,6 +130,7 @@ def _build_kafka_consumer(settings) -> KafkaConsumer:
         "auto_offset_reset": "latest",
         "enable_auto_commit": True,
         "group_id": "flink-pipeline1-processor",
+        "api_version": (2, 5, 0),
     }
     if settings.kafka_username and settings.kafka_password:
         consumer_config.update(
@@ -161,6 +162,7 @@ def run_kafka_mode(
         for message in consumer:
             payload = message.value
             read_count += 1
+            logger.info("Received raw message: %s", str(payload)[:100])
 
             if isinstance(payload, dict):
                 processed_ok = process_single_event(

@@ -16,6 +16,7 @@ class KafkaSink:
         producer_config = {
             "bootstrap_servers": self.settings.kafka_bootstrap_servers,
             "value_serializer": lambda v: json.dumps(v, default=str).encode("utf-8"),
+            "api_version": (2, 5, 0),
         }
         if self.settings.kafka_username and self.settings.kafka_password:
             producer_config.update(
