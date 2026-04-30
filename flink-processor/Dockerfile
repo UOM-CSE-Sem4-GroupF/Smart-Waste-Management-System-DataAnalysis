@@ -1,10 +1,37 @@
-FROM python:3.11-slim
+FROM flink:1.20.0-java17
+
+# Install Python 3 and pip
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-dev \
+    curl \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create python symlink
+RUN ln -s /usr/bin/python3 /usr/bin/python
 
 WORKDIR /app
 
+# Download the Flink-Kafka SQL connector JAR to Flink's lib directory
+# This makes it available to the Flink engine automatically
+RUN curl -L https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.3.0-1.20/flink-sql-connector-kafka-3.3.0-1.20.jar \
+    -o /opt/flink/lib/flink-sql-connector-kafka.jar
+
+# Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt --break-system-packages
 
 COPY . .
 
-CMD ["python", "job.py", "--mode", "kafka"]
+# Set environment variables for Flink
+ENV FLINK_HOME=/opt/flink
+ENV PATH=$FLINK_HOME/bin:$PATH
+
+# Use root for now to avoid permission issues with logs/state
+USER root
+
+CMD ["python", "job.py", "--mode", "pyflink-kafka"]

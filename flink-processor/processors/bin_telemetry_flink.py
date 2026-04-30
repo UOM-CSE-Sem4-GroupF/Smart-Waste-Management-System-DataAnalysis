@@ -228,24 +228,26 @@ class BinTelemetryFlinkProcessor:
             self._last_alert_ts.update(event_ms)
 
         processed = {
-            "version": "1.0",
-            "source_service": "flink-processor",
+            "event_id": f"{bin_id}_{event_ms}",
+            "event_ts": timestamp_str,
+            "bin_id": bin_id,
+            "cluster_id": metadata.get("cluster_id"),
+            "zone_id": metadata.get("zone_id"),
+            "latitude": metadata.get("latitude"),
+            "longitude": metadata.get("longitude"),
+            "waste_category_id": metadata.get("waste_category_id"),
+            "waste_category": metadata.get("waste_category_name"),
+            "fill_level_pct": fill_level,
+            "battery_level_pct": battery,
+            "estimated_weight_kg": estimated_weight_kg,
+            "status": status,
+            "urgency_score": urgency_score,
+            "fill_rate_pct_per_hour": fill_rate,
+            "predicted_full_at": predicted_full_at,
+            "alerts": [anomaly["type"]] if anomaly else [],
             "timestamp": timestamp_str,
-            "payload": {
-                "bin_id": bin_id,
-                "fill_level_pct": fill_level,
-                "status": status,
-                "urgency_score": urgency_score,
-                "estimated_weight_kg": estimated_weight_kg,
-                "fill_rate_pct_per_hour": fill_rate,
-                "predicted_full_at": predicted_full_at,
-                "battery_level_pct": battery,
-                "signal_strength_dbm": payload.get("signal_strength"),
-                "zone_id": metadata.get("zone_id"),
-                "waste_category": metadata.get("waste_category_id"),
-                "cluster_id": metadata.get("cluster_id"),
-                "anomaly": anomaly,
-            },
+            "anomaly_detected": bool(anomaly),
+            "anomaly_flags": [anomaly] if anomaly else [],
         }
 
         yield json.dumps(processed, default=str)
