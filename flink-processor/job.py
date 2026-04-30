@@ -356,10 +356,16 @@ def run_pyflink_kafka_mode(settings, logger: logging.Logger) -> None:
         .process(processor, output_type=Types.STRING())
     )
 
-    # Fan-out sinks
-    processed_stream.add_sink(ProcessedBinInfluxFlinkSink(settings))
-    processed_stream.add_sink(BinStateFlinkSink(settings))
-    processed_stream.add_sink(KafkaProcessedFlinkSink(settings))
+    # Chain sink MapFunctions. add_sink() requires Java interop; .map() works for pure-Python I/O.
+    # Each step writes to its destination as a side effect and passes the JSON string through.
+    # .print() at the end anchors the graph so Flink includes all operators in the execution plan.
+    (
+        processed_stream
+        .map(ProcessedBinInfluxFlinkSink(settings), output_type=Types.STRING())
+        .map(BinStateFlinkSink(settings), output_type=Types.STRING())
+        .map(KafkaProcessedFlinkSink(settings), output_type=Types.STRING())
+        .print()
+    )
 
     logger.info("Submitting PyFlink job: Pipeline 1 — Bin Telemetry")
     env.execute("Pipeline 1 — Bin Telemetry (stateful)")

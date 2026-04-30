@@ -35,5 +35,7 @@ services:
       # App Config
       APP_ENV: development
       LOG_LEVEL: INFO
-      FLINK_KAFKA_JAR: /app/libs/flink-sql-connector-kafka.jar
+      FLINK_KAFKA_JAR: /opt/flink/lib/flink-sql-connector-kafka.jar
     command: ["python", "job.py", "--mode", "pyflink-kafka"]
+    volumes:
+      - .:/app

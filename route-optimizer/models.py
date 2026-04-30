@@ -1,85 +1,81 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any
+from typing import List, Optional
+
+from pydantic import BaseModel
 
 
-@dataclass(frozen=True)
-class EmergencyTrigger:
-    event_id: str
-    trigger_bin_id: str
-    zone_id: int | None
-    urgency_score: int
-    route_type: str
-    event_timestamp: str
-    payload: dict[str, Any]
+class ClusterInput(BaseModel):
+    cluster_id: str
+    lat: float
+    lng: float
+    cluster_name: str
 
 
-@dataclass(frozen=True)
-class BinCandidate:
+class BinInput(BaseModel):
     bin_id: str
-    zone_id: int
+    cluster_id: str
     lat: float
     lng: float
     waste_category: str
-    volume_litres: float
     fill_level_pct: float
+    estimated_weight_kg: float
     urgency_score: int
-    status: str
-    estimated_weight_kg: float
-    battery_level_pct: float | None
-    predicted_full_at: str | None
-    last_reading_at: str | None
+    predicted_full_at: Optional[str] = None  # ISO 8601 or null
 
 
-@dataclass(frozen=True)
-class VehicleProfile:
+class VehicleInput(BaseModel):
     vehicle_id: str
-    registration: str
     max_cargo_kg: float
-    volume_m3: float | None
-    waste_categories_supported: tuple[str, ...]
-    active: bool
+    waste_categories_supported: List[str]
+    current_lat: float
+    current_lng: float
+    # vehicles start from their current position, not depot
+    # for pre-shift routine jobs they start from depot
 
 
-@dataclass(frozen=True)
-class EmergencyOptimizationSnapshot:
-    trigger: EmergencyTrigger
-    zone_id: int
-    urgent_bins: tuple[BinCandidate, ...] = field(default_factory=tuple)
-    vehicles: tuple[VehicleProfile, ...] = field(default_factory=tuple)
-    resolved_at: datetime | None = None
-
-    @property
-    def total_estimated_weight_kg(self) -> float:
-        return round(sum(bin_candidate.estimated_weight_kg for bin_candidate in self.urgent_bins), 2)
+class DepotInput(BaseModel):
+    lat: float
+    lng: float
+    # all routes end at depot
 
 
-@dataclass(frozen=True)
-class RouteStop:
-    sequence_number: int
-    bin_id: str
-    estimated_arrival_min: int
+class SolveRequest(BaseModel):
+    job_id: str
+    job_type: str                    # routine | emergency
+
+    clusters: List[ClusterInput]
+    bins: List[BinInput]
+    available_vehicles: List[VehicleInput]
+
+    depot: DepotInput
+    time_limit_seconds: int = 30     # solver time limit
 
 
-@dataclass(frozen=True)
-class VehicleRoutePlan:
+class Waypoint(BaseModel):
+    sequence: int
+    cluster_id: str
+    cluster_name: str
+    lat: float
+    lng: float
+    bins: List[str]                  # bin_ids to collect at this stop
+    estimated_arrival_iso: str       # ISO 8601 estimated arrival
+    time_window_deadline_iso: str    # must arrive before this
+    cumulative_weight_kg: float      # running weight total at this stop
+    stop_duration_minutes: int       # estimated time at stop
+
+
+class SolveResponse(BaseModel):
+    success: bool
+    job_id: str
+    method: str                      # 'or_tools' | 'nearest_neighbour_fallback'
+    solver_time_ms: int
+
     vehicle_id: str
-    route_type: str
-    stops: tuple[RouteStop, ...]
-    estimated_weight_kg: float
-    estimated_distance_km: float
+    waypoints: List[Waypoint]
+    total_distance_km: float
     estimated_minutes: int
+    total_weight_kg: float
 
-
-@dataclass(frozen=True)
-class OptimizationPlan:
-    zone_id: int
-    solver_used: str
-    routes: tuple[VehicleRoutePlan, ...]
-    unassigned_bins: tuple[str, ...]
-
-    @property
-    def total_weight_kg(self) -> float:
-        return round(sum(route.estimated_weight_kg for route in self.routes), 2)
+    # null if fallback was used
+    optimality_gap_pct: Optional[float] = None

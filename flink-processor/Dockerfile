@@ -23,7 +23,7 @@ RUN curl -L https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt --break-system-packages
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 

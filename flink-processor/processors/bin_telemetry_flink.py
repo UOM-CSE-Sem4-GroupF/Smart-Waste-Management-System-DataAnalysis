@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from pyflink.datastream.functions import KeyedProcessFunction
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ def detect_anomaly(
     return None
 
 
-class BinTelemetryFlinkProcessor:
+class BinTelemetryFlinkProcessor(KeyedProcessFunction):
     """
     PyFlink KeyedProcessFunction for stateful bin telemetry processing (Pipeline 1).
 
