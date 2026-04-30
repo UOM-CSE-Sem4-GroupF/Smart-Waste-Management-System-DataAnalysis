@@ -18,19 +18,23 @@ WASTE_DENSITY_KG_PER_L = {
 
 class PredictionService:
     def __init__(self) -> None:
+
         self.model_version = "baseline-2026.04"
         self.loaded_at = LOADED_AT_UTC
         self._logger = logging.getLogger("ml-service.predictor")
         self._models: dict[str, Any] = {}
         self.mlflow_enabled = False
-
+        self.mlflow_tracking_uri = ""
+        self._mlflow_run_id = None
     def load_models(self) -> None:
         """Load production models from MLflow if configured; fallback gracefully."""
+
         tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "").strip()
         if not tracking_uri:
             self._logger.info("MLflow tracking URI not set; using baseline heuristics.")
             return
-
+        
+        self.mlflow_tracking_uri = tracking_uri
         try:
             import mlflow
         except Exception:
@@ -179,6 +183,30 @@ class PredictionService:
             )
 
         return data
+
+    def log_prediction_metric(self, metric_name: str, value: float, step: int = 0) -> None:
+        """Log prediction metrics to MLflow if enabled."""
+        if not self.mlflow_enabled or not self.mlflow_tracking_uri:
+            return
+        
+        try:
+            import mlflow
+            mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+            
+            # Use a shared experiment or create one for predictions
+            experiment_name = "waste-ml-service-predictions"
+            try:
+                exp_id = mlflow.create_experiment(experiment_name)
+            except Exception:
+                exp = mlflow.get_experiment_by_name(experiment_name)
+                exp_id = exp.experiment_id if exp else None
+            
+            if exp_id:
+                if not mlflow.active_run():
+                    mlflow.start_run(experiment_id=exp_id)
+                mlflow.log_metric(metric_name, value, step=step)
+        except Exception as exc:
+            self._logger.debug("Could not log metric to MLflow: %s", exc)
 
 
 predictor = PredictionService()

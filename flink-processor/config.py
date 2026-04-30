@@ -8,9 +8,12 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class Settings:
+    # Environment & logging
     app_env: str
     log_level: str
+    processing_timezone: str
 
+    # Kafka connectivity
     kafka_bootstrap_servers: str
     kafka_input_topic: str
     kafka_vehicle_location_topic: str
@@ -23,12 +26,15 @@ class Settings:
     kafka_username: str
     kafka_password: str
 
+    # PostgreSQL connectivity (F2 schema)
     postgres_host: str
     postgres_port: int
     postgres_db: str
     postgres_user: str
     postgres_password: str
+    postgres_schema: str
 
+    # InfluxDB connectivity
     influx_url: str
     influx_org: str
     influx_token: str
@@ -38,7 +44,8 @@ class Settings:
     influx_zone_bucket: str
     influx_vehicle_bucket: str
 
-    processing_timezone: str
+    # Processing mode
+    flink_input_mode: str
     local_test_input_file: str
     local_zone_test_input_file: str
 
@@ -82,6 +89,7 @@ def load_settings() -> Settings:
         postgres_db=os.getenv("POSTGRES_DB", "waste_management"),
         postgres_user=os.getenv("POSTGRES_USER", "waste_admin"),
         postgres_password=os.getenv("POSTGRES_PASSWORD", "waste_admin_password"),
+        postgres_schema=os.getenv("POSTGRES_SCHEMA", "f2"),
         influx_url=os.getenv("INFLUX_URL", "http://localhost:8086"),
         influx_org=os.getenv("INFLUX_ORG", "waste-org"),
         influx_token=os.getenv("INFLUX_TOKEN", "my-super-token"),
@@ -90,6 +98,7 @@ def load_settings() -> Settings:
         influx_processed_bucket=os.getenv("INFLUX_PROCESSED_BUCKET", "bin_readings_processed"),
         influx_zone_bucket=os.getenv("INFLUX_ZONE_BUCKET", "zone_statistics"),
         influx_vehicle_bucket=os.getenv("INFLUX_VEHICLE_BUCKET", "vehicle_positions"),
+        flink_input_mode=os.getenv("FLINK_INPUT_MODE", "kafka"),
         processing_timezone=os.getenv("PROCESSING_TIMEZONE", "UTC"),
         local_test_input_file=os.getenv("LOCAL_TEST_INPUT_FILE", "./tests/data/bin_telemetry_sample.jsonl"),
         local_zone_test_input_file=os.getenv(
