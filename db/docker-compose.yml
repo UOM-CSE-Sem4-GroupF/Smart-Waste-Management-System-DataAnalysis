@@ -10,9 +10,12 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./:/docker-entrypoint-initdb.d:ro
+      # 01 — DDL: creates f2/f3 schemas, all tables, views, triggers
+      - ../database-schema-v3 (2).sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      # 02 — Seed: reference data (categories, zones, clusters, bins, devices, drivers)
+      - ./seed-v3.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U waste_admin -d waste_management" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-waste_admin} -d ${POSTGRES_DB:-waste_management}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -32,7 +35,7 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_INIT_BUCKET:-waste-bootstrap}
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_INIT_ADMIN_TOKEN:-my-super-token}
     healthcheck:
-      test: [ "CMD", "influx", "ping", "--host", "http://localhost:8086" ]
+      test: ["CMD", "influx", "ping", "--host", "http://localhost:8086"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -49,7 +52,7 @@ services:
       INFLUXDB_TOKEN: ${INFLUXDB_INIT_ADMIN_TOKEN:-my-super-token}
     volumes:
       - ./influx/setup-buckets.sh:/scripts/setup-buckets.sh:ro
-    entrypoint: [ "sh", "/scripts/setup-buckets.sh" ]
+    entrypoint: ["sh", "/scripts/setup-buckets.sh"]
 
 volumes:
   postgres_data:

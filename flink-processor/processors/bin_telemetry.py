@@ -161,8 +161,8 @@ class BinTelemetryProcessor:
         if isinstance(battery_level_pct, (int, float)) and battery_level_pct < cls.LOW_BATTERY_THRESHOLD_PCT:
             flags.append("low_battery")
 
-        signal_strength = payload.get("signal_strength")
-        if isinstance(signal_strength, (int, float)) and signal_strength < cls.WEAK_SIGNAL_THRESHOLD_DBM:
+        signal_strength_dbm = payload.get("signal_strength_dbm")
+        if isinstance(signal_strength_dbm, (int, float)) and signal_strength_dbm < cls.WEAK_SIGNAL_THRESHOLD_DBM:
             flags.append("weak_signal")
 
         temperature_c = payload.get("temperature_c")
@@ -274,14 +274,22 @@ class BinTelemetryProcessor:
                 metadata=metadata,
             )
 
+            # e_waste special handling: bump urgency by +10 (spec §4 Pipeline 1)
+            urgency_score = int(round(priority_score))
+            if metadata.get("special_handling"):
+                urgency_score = min(urgency_score + 10, 100)
+            status = self._classify_status(float(urgency_score))
+
             processed = {
                 "event_id": validated_event.event_id,
                 "event_ts": validated_event.event_ts,
                 "bin_id": bin_id,
+                "cluster_id": metadata.get("cluster_id"),
                 "zone_id": metadata.get("zone_id"),
                 "latitude": metadata.get("latitude"),
                 "longitude": metadata.get("longitude"),
                 "waste_category_id": metadata.get("waste_category_id"),
+                "waste_category": metadata.get("waste_category_name"),
                 "fill_level_pct": fill_level_pct,
                 "battery_level_pct": battery_level_pct,
                 "volume_litres": volume_litres,
@@ -291,8 +299,8 @@ class BinTelemetryProcessor:
                     volume_litres=volume_litres,
                     avg_kg_per_litre=avg_kg_per_litre,
                 ),
-                "status": self._classify_status(priority_score),
-                "urgency_score": priority_score,
+                "status": status,
+                "urgency_score": urgency_score,
                 "priority_score": priority_score,
                 "fill_rate_pct_per_hour": validated_event.payload.get("fill_rate_pct_per_hour"),
                 "predicted_full_at": validated_event.payload.get("predicted_full_at"),
