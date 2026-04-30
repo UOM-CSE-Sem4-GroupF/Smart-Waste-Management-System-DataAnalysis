@@ -253,6 +253,9 @@ CREATE TABLE f2.bins (
     installed_at        TIMESTAMPTZ,
     last_maintained_at  TIMESTAMPTZ,
     notes               TEXT,
+    depth_cm            INTEGER NOT NULL DEFAULT 120,
+    -- Physical depth of the bin container
+    -- Used by firmware: fill_pct = ((depth_cm - distance_cm) / depth_cm) × 100
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -294,9 +297,6 @@ CREATE TABLE f2.devices (
     -- These values are pushed to the device via Leshan/LwM2M
     -- Device reads them on boot and after config update
 
-    bin_depth_cm        INTEGER NOT NULL DEFAULT 120,
-    -- Physical depth of the bin container
-    -- Used by firmware: fill_pct = ((bin_depth_cm - distance_cm) / bin_depth_cm) × 100
 
     sleep_interval_normal_s   INTEGER NOT NULL DEFAULT 600,
     -- Sleep duration in seconds when fill < 50%   (default: 10 minutes)
@@ -699,6 +699,20 @@ CREATE INDEX idx_routine_schedules_day
     WHERE active = TRUE;
 
 
+-- =============================================================
+-- SHARED UTILITY FUNCTION
+-- Must be defined before any trigger that references it
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION f3.set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
 -- -------------------------------------------------------------
 -- COLLECTION JOBS — CORE
 -- 3NF: contains only facts that depend directly on job identity
@@ -1099,19 +1113,7 @@ CREATE INDEX idx_weight_logs_vehicle
     ON f3.vehicle_weight_logs(vehicle_id, recorded_at DESC);
 
 
--- =============================================================
--- SHARED UTILITY FUNCTION
--- =============================================================
-
-CREATE OR REPLACE FUNCTION f3.set_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Apply trigger to all tables with updated_at
+-- Apply remaining updated_at triggers
 CREATE TRIGGER trg_drivers_updated_at
     BEFORE UPDATE ON f3.drivers
     FOR EACH ROW EXECUTE FUNCTION f3.set_updated_at();
