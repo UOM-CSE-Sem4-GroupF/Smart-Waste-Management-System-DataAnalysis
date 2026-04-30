@@ -151,7 +151,7 @@ class BinTelemetryProcessor:
     ) -> Optional[float]:
         if volume_litres is None or avg_kg_per_litre is None:
             return None
-        return float(fill_level_pct) * float(volume_litres) * float(avg_kg_per_litre)
+        return (float(fill_level_pct) / 100.0) * float(volume_litres) * float(avg_kg_per_litre)
 
     @classmethod
     def _detect_anomalies(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
