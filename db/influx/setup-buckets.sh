@@ -1,5 +1,10 @@
+<<<<<<< Updated upstream
 #!/bin/sh
 set -eu
+=======
+#!/usr/bin/env bash
+set -e
+>>>>>>> Stashed changes
 
 INFLUX_HOST="${INFLUXDB_HOST:-http://influxdb:8086}"
 INFLUX_ORG="${INFLUXDB_ORG:-waste-org}"

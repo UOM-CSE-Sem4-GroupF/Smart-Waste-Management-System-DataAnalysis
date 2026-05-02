@@ -189,3 +189,4 @@ volumes:
   kafka_data:
   postgres_data:
   influxdb_data:
+  
