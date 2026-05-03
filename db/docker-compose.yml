@@ -14,6 +14,9 @@ services:
       - ../database-schema-v3 (2).sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       # 02 — Seed: reference data (categories, zones, clusters, bins, devices, drivers)
       - ./seed-v3.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    networks:
+      - default
+      - garabadge
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-waste_admin} -d ${POSTGRES_DB:-waste_management}"]
       interval: 10s
@@ -57,3 +60,8 @@ services:
 volumes:
   postgres_data:
   influxdb_data:
+
+networks:
+  garabadge:
+    external: true
+    name: garabadge
