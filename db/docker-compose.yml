@@ -63,5 +63,4 @@ volumes:
 
 networks:
   garabadge:
-    external: true
     name: garabadge

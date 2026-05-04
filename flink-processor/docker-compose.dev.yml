@@ -1,41 +1,46 @@
 services:
-  flink-processor:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: flink-processor-dev
-    restart: unless-stopped
-    # Map Kafka's internal advertised hostname to the real broker IP.
-    # Kafka returns 'controller.internal' in metadata responses; without this
-    # the container cannot resolve it and all fetch requests fail.
-    extra_hosts:
-      - "controller.internal:163.47.8.3"
-      # host-gateway lets the container reach Postgres/InfluxDB running on your machine
-      - "host.docker.internal:host-gateway"
-    environment:
-      # Kafka Connectivity (DigitalOcean)
-      KAFKA_BOOTSTRAP_SERVERS: 163.47.8.3:9094
-      KAFKA_USERNAME: user1
-      KAFKA_PASSWORD: c4eFajFH2t
-      KAFKA_SECURITY_PROTOCOL: SASL_PLAINTEXT
-      KAFKA_SASL_MECHANISM: SCRAM-SHA-256
+      flink-processor:
+            build:
+                  context: .
+                  dockerfile: Dockerfile
+            container_name: flink-processor-dev
+            restart: unless-stopped
+            # Map Kafka's internal advertised hostname to the real broker IP.
+            # Kafka returns 'controller.internal' in metadata responses; without this
+            # the container cannot resolve it and all fetch requests fail.
+            extra_hosts:
+                  - "controller.internal:163.47.8.3"
+            environment:
+                  # Kafka Connectivity (DigitalOcean)
+                  KAFKA_BOOTSTRAP_SERVERS: 163.47.8.3:9094
+                  KAFKA_USERNAME: user1
+                  KAFKA_PASSWORD: c4eFajFH2t
+                  KAFKA_SECURITY_PROTOCOL: SASL_PLAINTEXT
+                  KAFKA_SASL_MECHANISM: SCRAM-SHA-256
 
-      # Database Connectivity (Local Docker via host-gateway)
-      POSTGRES_HOST: host.docker.internal
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: waste_management
-      POSTGRES_USER: waste_admin
-      POSTGRES_PASSWORD: waste_admin_password
+                  # Database Connectivity (shared db_default Docker network)
+                  POSTGRES_HOST: postgres
+                  POSTGRES_PORT: 5432
+                  POSTGRES_DB: waste_management
+                  POSTGRES_USER: waste_admin
+                  POSTGRES_PASSWORD: waste_admin_password
 
-      # InfluxDB Connectivity (Local Docker via host-gateway)
-      INFLUX_URL: http://host.docker.internal:8086
-      INFLUX_TOKEN: my-super-token
-      INFLUX_ORG: waste-org
+                  # InfluxDB Connectivity (shared db_default Docker network)
+                  INFLUX_URL: http://influxdb:8086
+                  INFLUX_TOKEN: my-super-token
+                  INFLUX_ORG: waste-org
 
-      # App Config
-      APP_ENV: development
-      LOG_LEVEL: INFO
-      FLINK_KAFKA_JAR: /opt/flink/lib/flink-sql-connector-kafka.jar
-    command: ["python", "job.py", "--mode", "pyflink-kafka"]
-    volumes:
-      - .:/app
+                  # App Config
+                  APP_ENV: development
+                  LOG_LEVEL: INFO
+                  FLINK_KAFKA_JAR: /opt/flink/lib/flink-sql-connector-kafka.jar
+            command: [ "python", "job.py", "--mode", "pyflink-kafka" ]
+            volumes:
+                  - .:/app
+            networks:
+                  - default
+                  - db_default
+
+networks:
+      db_default:
+            external: true

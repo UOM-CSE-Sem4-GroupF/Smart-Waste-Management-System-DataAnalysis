@@ -1,0 +1,96 @@
+services:
+  pipeline1:
+    image: python:3.10
+    entrypoint: bash -c 'cd /app && pip install -q -r requirements.txt && timeout 20 python job.py --mode kafka || true'
+    working_dir: /app
+    volumes:
+      - ./flink-processor:/app
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: waste_management
+      POSTGRES_USER: waste_admin
+      POSTGRES_PASSWORD: waste_admin_password
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_ORG: waste-org
+      INFLUX_TOKEN: my-super-token
+      KAFKA_BOOTSTRAP_SERVERS: 163.47.8.3:9094
+      KAFKA_USERNAME: user1
+      KAFKA_PASSWORD: c4eFajFH2t
+      KAFKA_SECURITY_PROTOCOL: SASL_SSL
+      KAFKA_SASL_MECHANISM: SCRAM-SHA-256
+    networks:
+      - db_default
+
+  pipeline2:
+    image: python:3.10
+    entrypoint: bash -c 'cd /app && pip install -q -r requirements.txt && timeout 20 python job_zone.py --mode kafka || true'
+    working_dir: /app
+    volumes:
+      - ./flink-processor:/app
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: waste_management
+      POSTGRES_USER: waste_admin
+      POSTGRES_PASSWORD: waste_admin_password
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_ORG: waste-org
+      INFLUX_TOKEN: my-super-token
+      KAFKA_BOOTSTRAP_SERVERS: 163.47.8.3:9094
+      KAFKA_USERNAME: user1
+      KAFKA_PASSWORD: c4eFajFH2t
+      KAFKA_SECURITY_PROTOCOL: SASL_SSL
+      KAFKA_SASL_MECHANISM: SCRAM-SHA-256
+    networks:
+      - db_default
+
+  pipeline3:
+    image: python:3.10
+    entrypoint: bash -c 'cd /app && pip install -q -r requirements.txt && timeout 20 python job_deviation.py --mode kafka || true'
+    working_dir: /app
+    volumes:
+      - ./flink-processor:/app
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: waste_management
+      POSTGRES_USER: waste_admin
+      POSTGRES_PASSWORD: waste_admin_password
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_ORG: waste-org
+      INFLUX_TOKEN: my-super-token
+      KAFKA_BOOTSTRAP_SERVERS: 163.47.8.3:9094
+      KAFKA_USERNAME: user1
+      KAFKA_PASSWORD: c4eFajFH2t
+      KAFKA_SECURITY_PROTOCOL: SASL_SSL
+      KAFKA_SASL_MECHANISM: SCRAM-SHA-256
+    networks:
+      - db_default
+
+  pipeline4:
+    image: python:3.10
+    entrypoint: bash -c 'cd /app && pip install -q -r requirements.txt && timeout 20 python job_vehicle.py --mode kafka || true'
+    working_dir: /app
+    volumes:
+      - ./flink-processor:/app
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: waste_management
+      POSTGRES_USER: waste_admin
+      POSTGRES_PASSWORD: waste_admin_password
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_ORG: waste-org
+      INFLUX_TOKEN: my-super-token
+      KAFKA_BOOTSTRAP_SERVERS: 163.47.8.3:9094
+      KAFKA_USERNAME: user1
+      KAFKA_PASSWORD: c4eFajFH2t
+      KAFKA_SECURITY_PROTOCOL: SASL_SSL
+      KAFKA_SASL_MECHANISM: SCRAM-SHA-256
+    networks:
+      - db_default
+
+networks:
+  db_default:
+    external: true

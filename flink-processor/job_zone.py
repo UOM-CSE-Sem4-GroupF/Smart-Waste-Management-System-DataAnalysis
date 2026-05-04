@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
@@ -50,6 +51,16 @@ def _read_local_events(file_path: str, logger: logging.Logger) -> Iterable[Dict[
                 logger.warning("Skipping non-object JSON at line %d", line_number)
                 continue
             yield event
+
+
+def _get_int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+    try:
+        return int(raw_value)
+    except ValueError:
+        return default
 
 
 def _build_kafka_consumer(settings) -> KafkaConsumer:
@@ -183,10 +194,18 @@ def main() -> None:
     logging.basicConfig(level=settings.log_level)
     logger = logging.getLogger("flink-pipeline-2")
 
-    processor = ZoneAggregationProcessor(window_minutes=10, slide_minutes=2)
+    window_minutes = _get_int_env("ZONE_WINDOW_MINUTES", 10)
+    slide_minutes = _get_int_env("ZONE_SLIDE_MINUTES", 2)
+    processor = ZoneAggregationProcessor(window_minutes=window_minutes, slide_minutes=slide_minutes)
     influx_sink = InfluxSink(settings)
     postgres_sink = PostgresSink(settings)
     kafka_sink = KafkaSink(settings)
+
+    logger.info(
+        "Pipeline 2 window config: window_minutes=%d slide_minutes=%d",
+        window_minutes,
+        slide_minutes,
+    )
 
     try:
         if args.mode == "local":

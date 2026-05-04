@@ -198,6 +198,149 @@ Verification covers:
 
 If Kafka/PostgreSQL/Influx is configured as disabled in `.env` (for example empty/disabled host or `INFLUX_ENABLED=false`), verification logs that check as skipped instead of hard failing.
 
+## F2 Flink Stream Processor Demo Script
+
+Use this flow when presenting the real-time processor end to end.
+
+### 1. Start the system
+
+```bash
+docker compose up --build
+```
+
+Say:
+
+> This starts the Flink processor with Kafka, PostgreSQL, and InfluxDB connections. The service listens to real-time bin and vehicle topics.
+
+### 2. Send bin telemetry events
+
+```bash
+python flink-processor/tests/e2e/send_bin_telemetry.py
+```
+
+Say:
+
+> I am sending sample smart-bin sensor readings into the Kafka topic waste.bin.telemetry.
+
+### 3. Show processed bin output
+
+Check Kafka topic:
+
+```bash
+python flink-processor/tests/e2e/verify_outputs.py --topic waste.bin.processed
+```
+
+Say:
+
+> Pipeline 1 processes the raw telemetry, enriches it with bin metadata, calculates estimated waste weight, fill rate, predicted full time, and applies the weighted priority score model.
+
+Show fields:
+
+```text
+bin_id
+fill_level_pct
+estimated_weight_kg
+priority_score
+status
+alerts
+```
+
+### 4. Show PostgreSQL bin state update
+
+```sql
+SELECT * FROM bin_current_state;
+```
+
+Say:
+
+> The latest state of every bin is upserted into PostgreSQL, so the system always has the current bin status.
+
+### 5. Show zone aggregation
+
+```bash
+python flink-processor/tests/e2e/verify_outputs.py --topic waste.zone.statistics
+```
+
+Say:
+
+> Pipeline 2 groups processed bin events by zone and calculates zone-level statistics such as average fill level, urgent bin count, critical bin count, and total estimated weight.
+
+Also check:
+
+```sql
+SELECT * FROM zone_snapshots;
+```
+
+### 6. Send vehicle GPS events
+
+```bash
+python flink-processor/tests/e2e/send_vehicle_location.py
+```
+
+Say:
+
+> I am now sending garbage truck GPS readings into the Kafka topic waste.vehicle.location.
+
+### 7. Show vehicle positions in InfluxDB
+
+Say:
+
+> Pipeline 4 stores every vehicle GPS ping in InfluxDB under the vehicle_positions measurement for historical tracking.
+
+Check measurement:
+
+```text
+vehicle_positions
+```
+
+### 8. Show route deviation alert
+
+```bash
+python flink-processor/tests/e2e/verify_outputs.py --topic waste.vehicle.deviation
+```
+
+Say:
+
+> Pipeline 3 compares the vehicle’s current GPS location against its planned route. If the vehicle stays more than 500 meters away from the route for over 2 minutes, it publishes a deviation alert.
+
+Expected alert:
+
+```json
+{
+  "vehicle_id": "LORRY-01",
+  "job_id": "JOB-001",
+  "deviation_m": 650.4,
+  "duration_s": 150
+}
+```
+
+### 9. Explain weighted priority score
+
+Say:
+
+> Instead of using only fill level, our system calculates a weighted priority score using fill level, time since last collection, predicted fill condition, distance cost, and risk factor.
+
+Formula:
+
+```text
+Priority Score = w1F + w2T + w3P + w4D + w5R
+```
+
+Status mapping:
+
+```text
+0–30     normal
+30–60    monitor
+60–85    urgent
+85–100   critical
+```
+
+### 10. Final summary
+
+Say:
+
+> This completes the real-time intelligence layer of the smart waste system. The processor consumes raw IoT and vehicle data, enriches it, stores operational state, produces analytics, and publishes events for dashboards and downstream services.
+
 ## Expected Demo Flow
 
 1. Start Docker services.
