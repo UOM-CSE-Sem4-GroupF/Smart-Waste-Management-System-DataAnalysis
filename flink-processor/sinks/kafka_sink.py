@@ -59,6 +59,21 @@ class KafkaSink:
             result.offset,
         )
 
+    def publish_sensor_offline(self, event: Dict[str, Any]) -> None:
+        """
+        Publishes a SENSOR_OFFLINE alert to waste.bin.processed so that
+        downstream consumers (F3 orchestrator, notification service) can react.
+        Spec: 06-flink-processor.md §8
+        """
+        future = self._producer.send(self.settings.kafka_output_topic, event)
+        result = future.get(timeout=10)
+        logger.debug(
+            "Published sensor offline alert to Kafka topic=%s partition=%s offset=%s",
+            self.settings.kafka_output_topic,
+            result.partition,
+            result.offset,
+        )
+
     def close(self) -> None:
         self._producer.flush()
         self._producer.close()

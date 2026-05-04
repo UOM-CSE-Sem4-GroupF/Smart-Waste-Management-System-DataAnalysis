@@ -281,6 +281,34 @@ services:
     networks:
       - waste-network
 
+  flink-sensor-offline:
+    build:
+      context: ./flink-processor
+      dockerfile: Dockerfile
+    container_name: waste-flink-sensor-offline
+    command: ["python", "job_sensor_offline.py", "--mode", "kafka"]
+    environment:
+      <<: *common-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_INPUT_TOPIC: ${KAFKA_TELEMETRY_TOPIC}
+      KAFKA_OUTPUT_TOPIC: ${KAFKA_PROCESSED_TOPIC}
+      KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL}
+      POSTGRES_HOST: postgres-waste
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Override defaults if needed via env file
+      OFFLINE_THRESHOLD_MINUTES: ${OFFLINE_THRESHOLD_MINUTES:-30}
+      TICK_INTERVAL_SECONDS: ${TICK_INTERVAL_SECONDS:-60}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres-waste:
+        condition: service_healthy
+    networks:
+      - waste-network
+
   # ================================================================
   # BATCH PROCESSING & ORCHESTRATION
   # ================================================================

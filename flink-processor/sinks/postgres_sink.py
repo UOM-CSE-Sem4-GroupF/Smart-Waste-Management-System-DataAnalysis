@@ -145,6 +145,33 @@ class PostgresSink:
         finally:
             self._pool.putconn(conn)
 
+    def mark_bin_offline(self, bin_id: str) -> None:
+        """
+        Updates f2.bin_current_state to status='offline' and urgency_score=0.
+        Called by the sensor offline detector when a bin stops reporting.
+        Spec: 06-flink-processor.md §8 — SensorOfflineDetector.on_timer
+        """
+        conn = self._pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE f2.bin_current_state
+                       SET status        = 'offline',
+                           urgency_score = 0,
+                           updated_at    = NOW()
+                     WHERE bin_id = %s
+                    """,
+                    (bin_id,),
+                )
+            conn.commit()
+            logger.info("Marked bin %s as offline in bin_current_state", bin_id)
+        except psycopg2.Error as exc:
+            conn.rollback()
+            raise PostgresSinkError(f"Failed to mark bin {bin_id} offline: {exc}") from exc
+        finally:
+            self._pool.putconn(conn)
+
     def close(self) -> None:
         if self._pool is not None:
             self._pool.closeall()
