@@ -223,3 +223,36 @@ class ZoneAggregationFlinkSink(FlatMapFunction):
         if self._influx: self._influx.close()
         if self._pg: self._pg.close()
         if self._kafka: self._kafka.close()
+
+
+class VehiclePositionFlinkSink(MapFunction):
+    """Processes vehicle GPS events and writes to InfluxDB."""
+
+    def __init__(self, settings):
+        self._settings = settings
+        self._processor = None
+        self._influx = None
+
+    def open(self, runtime_context: RuntimeContext):
+        from processors.vehicle_position import VehiclePositionProcessor, ValidationError
+        from sinks.influx_sink import InfluxSink
+        
+        self._processor = VehiclePositionProcessor()
+        self._influx = InfluxSink(self._settings)
+        # Store ValidationError class to catch it specifically
+        self._ValidationError = ValidationError
+
+    def map(self, value: str) -> str:
+        try:
+            event_dict = json.loads(value) if isinstance(value, str) else value
+            processed = self._processor.process(event_dict)
+            self._influx.write_vehicle_position(processed)
+        except self._ValidationError as exc:
+            logger.warning("Skipping invalid vehicle location event: %s", exc)
+        except Exception:
+            logger.exception("VehiclePositionFlinkSink failed processing event")
+        return value
+
+    def close(self):
+        if self._influx is not None:
+            self._influx.close()
