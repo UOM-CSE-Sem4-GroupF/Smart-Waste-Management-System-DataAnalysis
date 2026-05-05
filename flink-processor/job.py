@@ -375,8 +375,13 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     settings = load_settings()
 
-    logging.basicConfig(level=settings.log_level)
+    logging.basicConfig(level=settings.log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("flink-pipeline-1")
+
+    # Suppress noise from apache_beam (which is used by PyFlink)
+    logging.getLogger("apache_beam").setLevel(logging.WARNING)
+    # Specifically suppress the BigQuery storage warning if it's still being noisy
+    logging.getLogger("apache_beam.io.gcp.bigquery").setLevel(logging.ERROR)
 
     logger.info("Pipeline execution started. Mode=%s", args.mode)
     metadata_store = None

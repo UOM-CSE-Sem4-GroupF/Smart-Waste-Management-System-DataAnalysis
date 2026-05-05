@@ -5,22 +5,22 @@ Spec reference: 06-flink-processor.md §8
 
 Architecture
 ------------
-Two concurrent activities run on a single thread via a polling loop:
+Two activities run in a single poll() loop:
 
-1. Kafka Consumer  — reads from waste.bin.telemetry and calls
-   detector.record_heartbeat() for every message received.
+1. Kafka Consumer  — reads waste.bin.telemetry via manual partition
+   assignment (group_id=None, seek_to_end) matching the pattern used
+   in app-consumer/kafka_consumer.py.  Calls detector.record_heartbeat()
+   for every message received.
 
 2. Periodic tick   — every TICK_INTERVAL_SECONDS the detector.tick()
-   method is called.  Any bin that has been silent ≥ 30 minutes is
-   declared offline; its DB row is updated and a Kafka alert published.
-
-This avoids threads/async while keeping the semantics of the spec's
-processing-time timer (check silences on a wall-clock interval).
+   method is called.  Any bin silent ≥ 30 minutes is declared offline;
+   its DB row is updated and a Kafka alert published.
 
 Environment variables
 ---------------------
-OFFLINE_THRESHOLD_MINUTES   Silence duration before marking a bin offline (default 30)
-TICK_INTERVAL_SECONDS       How often the polling loop fires the timer check (default 60)
+KAFKA_TELEMETRY_PARTITIONS     Number of partitions on waste.bin.telemetry (default 6)
+OFFLINE_THRESHOLD_MINUTES      Silence duration before marking a bin offline (default 30)
+TICK_INTERVAL_SECONDS          How often the polling loop fires the timer check (default 60)
 """
 
 import argparse
@@ -30,7 +30,7 @@ import os
 import time
 from typing import Optional
 
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, TopicPartition
 from kafka.errors import NoBrokersAvailable
 
 from config import load_settings
@@ -71,15 +71,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def _build_kafka_consumer(settings) -> KafkaConsumer:
+    """
+    Matches the working pattern from app-consumer/kafka_consumer.py:
+    - group_id=None  (no consumer group — manual partition assignment)
+    - assign() all partitions of the telemetry topic
+    - seek_to_end() so we only consume live events
+    - poll() loop instead of blocking iterator
+
+    waste.bin.telemetry is configured with 6 partitions in docker-compose.yml.
+    """
+    num_partitions = _get_int_env("KAFKA_TELEMETRY_PARTITIONS", 6)
+
     consumer_config = {
         "bootstrap_servers": settings.kafka_bootstrap_servers,
         "value_deserializer": lambda b: json.loads(b.decode("utf-8")),
-        "auto_offset_reset": "latest",
-        "enable_auto_commit": True,
-        "group_id": "flink-pipeline5-sensor-offline-detector",
-        # Short poll timeout so the loop can fire the tick check regularly
-        # even when no messages are arriving.
-        "consumer_timeout_ms": 5_000,
+        "group_id": None,
+        "api_version": (2, 5, 0),
+        "request_timeout_ms": 30000,
+        "fetch_max_wait_ms": 500,
     }
     if settings.kafka_username and settings.kafka_password:
         consumer_config.update(
@@ -90,7 +99,12 @@ def _build_kafka_consumer(settings) -> KafkaConsumer:
                 "sasl_plain_password": settings.kafka_password,
             }
         )
-    return KafkaConsumer(settings.kafka_input_topic, **consumer_config)
+
+    consumer = KafkaConsumer(**consumer_config)
+    partitions = [TopicPartition(settings.kafka_input_topic, p) for p in range(num_partitions)]
+    consumer.assign(partitions)
+    consumer.seek_to_end(*partitions)
+    return consumer
 
 
 # ── Core processing ────────────────────────────────────────────────────────────
@@ -138,21 +152,22 @@ def run_kafka_mode(
     last_tick_at = time.monotonic()
 
     logger.info(
-        "Pipeline 5 started. Consuming from topic=%s  threshold=%s min  tick=%s s",
+        "Pipeline 5 started. topic=%s  threshold=%s  tick=%ss  (group_id=None, manual assign)",
         settings.kafka_input_topic,
         detector.offline_threshold,
         tick_interval_s,
     )
 
     try:
-        # consumer_timeout_ms causes StopIteration when idle, so we loop manually
         while True:
-            # ── Drain available messages ──────────────────────────────────────
-            try:
-                for message in consumer:
+            # ── poll() for live messages ──────────────────────────────────────
+            records = consumer.poll(timeout_ms=3000)
+
+            for tp, messages in records.items():
+                for message in messages:
                     payload = message.value
                     if not isinstance(payload, dict):
-                        logger.warning("Skipping non-dict Kafka message")
+                        logger.warning("Skipping non-dict message on partition %s", tp.partition)
                         continue
 
                     bin_id: Optional[str] = payload.get("bin_id")
@@ -168,9 +183,6 @@ def run_kafka_mode(
                     if max_messages > 0 and read_count >= max_messages:
                         logger.info("Reached max-messages=%d. Stopping.", max_messages)
                         return
-            except StopIteration:
-                # consumer_timeout_ms expired — no messages right now
-                pass
 
             # ── Periodic tick: check for silent bins ──────────────────────────
             now = time.monotonic()
