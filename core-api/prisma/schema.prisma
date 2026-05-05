@@ -42,7 +42,7 @@ model CityZone {
   code             String   @unique @db.VarChar(20)
   boundary_geojson Json?
   collection_day   String?  @db.VarChar(10)
-  collection_time  String?  @db.VarChar(5)  // stored as TIME — mapped as string
+  collection_time  DateTime? @db.Time
   supervisor_id    String?  @db.VarChar(100)
   active           Boolean  @default(true)
   notes            String?  @db.Text
