@@ -19,14 +19,6 @@ const server = Fastify({
   },
 });
 
-// ── Plugins ─────────────────────────────────────────────────────────────────
-await server.register(cors, { origin: true });
-
-// ── Routes ──────────────────────────────────────────────────────────────────
-await server.register(binsRoutes, { prefix: "/api/v1" });
-await server.register(clustersRoutes, { prefix: "/api/v1" });
-await server.register(metadataRoutes, { prefix: "/api/v1" });
-
 // ── Health Check ─────────────────────────────────────────────────────────────
 server.get("/health", async () => {
   return {
@@ -49,11 +41,23 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
 // ── Start ────────────────────────────────────────────────────────────────────
-try {
-  await server.listen({ port: PORT, host: HOST });
-  server.log.info(`🚀 Core API running at http://${HOST}:${PORT}`);
-} catch (err) {
-  server.log.error(err);
-  await prisma.$disconnect();
-  process.exit(1);
+async function start() {
+  try {
+    // ── Plugins ─────────────────────────────────────────────────────────────────
+    await server.register(cors, { origin: true });
+
+    // ── Routes ──────────────────────────────────────────────────────────────────
+    await server.register(binsRoutes, { prefix: "/api/v1" });
+    await server.register(clustersRoutes, { prefix: "/api/v1" });
+    await server.register(metadataRoutes, { prefix: "/api/v1" });
+
+    await server.listen({ port: PORT, host: HOST });
+    server.log.info(`🚀 Core API running at http://${HOST}:${PORT}`);
+  } catch (err) {
+    server.log.error(err);
+    await prisma.$disconnect();
+    process.exit(1);
+  }
 }
+
+start();

@@ -266,7 +266,7 @@ services:
       NODE_ENV: production
       PORT: 8001
       HOST: 0.0.0.0
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-waste:5432/${POSTGRES_DB}?schema=f2
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waste_admin}:${POSTGRES_PASSWORD:-waste_admin_password}@postgres-waste:5432/${POSTGRES_DB:-waste_management}?schema=f2
     depends_on:
       postgres-waste:
         condition: service_healthy

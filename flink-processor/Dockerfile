@@ -39,4 +39,5 @@ ENV PATH=$FLINK_HOME/bin:$PATH
 # Use root for now to avoid permission issues with logs/state
 USER root
 
-CMD ["python", "job.py", "--mode", "pyflink-kafka"]
+ENTRYPOINT ["python"]
+CMD ["job.py", "--mode", "pyflink-kafka"]
