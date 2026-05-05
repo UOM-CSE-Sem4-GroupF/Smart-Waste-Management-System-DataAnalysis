@@ -177,7 +177,7 @@ services:
 
       APP_ENV: development
       LOG_LEVEL: INFO
-    command: ["python", "job_sensor_offline.py", "--mode", "kafka"]
+    command: ["python", "job_sensor_offline.py", "--mode", "pyflink-kafka"]
     volumes:
       - .:/app
     networks:

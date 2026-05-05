@@ -82,7 +82,7 @@ class RouteStore:
                     cur.execute(
                         """
                         SELECT id, vehicle_id, job_id, waypoints
-                        FROM route_plans
+                        FROM f2.route_plans
                         WHERE vehicle_id = %s AND job_id = %s::uuid
                         ORDER BY created_at DESC
                         LIMIT 1
@@ -93,7 +93,7 @@ class RouteStore:
                     cur.execute(
                         """
                         SELECT id, vehicle_id, job_id, waypoints
-                        FROM route_plans
+                        FROM f2.route_plans
                         WHERE vehicle_id = %s
                         ORDER BY created_at DESC
                         LIMIT 1

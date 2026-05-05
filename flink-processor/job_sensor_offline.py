@@ -57,8 +57,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=["kafka"],
-        default="kafka",
+        choices=["kafka", "pyflink-kafka"],
+        default="pyflink-kafka",
         help="Execution mode.",
     )
     parser.add_argument(
@@ -68,6 +68,55 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Stop after N messages (0 = unlimited). Useful for smoke runs.",
     )
     return parser
+
+
+def run_pyflink_kafka_mode(settings, offline_threshold_min: int) -> None:
+    """Sets up the stateful PyFlink pipeline for sensor offline detection."""
+    from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode
+    from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
+    from pyflink.common.serialization import SimpleStringSchema
+    from pyflink.common.watermark_strategy import WatermarkStrategy
+    
+    from processors.sensor_offline_flink import SensorOfflineFlinkProcessor
+    from sinks.flink_sinks import SensorOfflineFlinkSink
+
+    env = StreamExecutionEnvironment.get_execution_environment()
+    env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
+    
+    # Adding JARs for Kafka connector
+    kafka_jar = os.getenv("FLINK_KAFKA_JAR")
+    if kafka_jar and os.path.exists(kafka_jar):
+        env.add_jars(f"file://{kafka_jar}")
+    else:
+        print(f"WARNING: Kafka JAR not found at {kafka_jar}. PyFlink might fail to connect to Kafka.")
+
+    source = KafkaSource.builder() \
+        .set_bootstrap_servers(settings.kafka_bootstrap_servers) \
+        .set_topics(settings.kafka_input_topic) \
+        .set_value_only_deserializer(SimpleStringSchema()) \
+        .set_starting_offsets(KafkaOffsetsInitializer.latest()) \
+        .set_properties({
+            "security.protocol": settings.kafka_security_protocol,
+            "sasl.mechanism": settings.kafka_sasl_mechanism,
+            "sasl.jaas.config": f'org.apache.kafka.common.security.scram.ScramLoginModule required username="{settings.kafka_username}" password="{settings.kafka_password}";',
+            "group.id": "flink-pipeline5-group"
+        }) \
+        .build()
+
+    ds = env.from_source(source, WatermarkStrategy.no_watermarks(), "TelemetrySource")
+
+    def extract_bin_id(value):
+        try:
+            return json.loads(value).get("bin_id", "unknown")
+        except:
+            return "unknown"
+
+    ds.key_by(extract_bin_id) \
+      .process(SensorOfflineFlinkProcessor(offline_threshold_minutes=offline_threshold_min)) \
+      .map(SensorOfflineFlinkSink(settings)) \
+      .print()
+
+    env.execute("SWMS Pipeline 5: Sensor Offline Detector")
 
 
 def _build_kafka_consumer(settings) -> KafkaConsumer:
@@ -233,10 +282,14 @@ def main() -> None:
     tick_interval_s = _get_int_env("TICK_INTERVAL_SECONDS", 60)
 
     logger.info(
-        "Pipeline 5 config: offline_threshold=%d min  tick_interval=%d s",
+        "Pipeline 5 starting in %s mode. threshold=%d min",
+        args.mode,
         offline_threshold_minutes,
-        tick_interval_s,
     )
+
+    if args.mode == "pyflink-kafka":
+        run_pyflink_kafka_mode(settings, offline_threshold_minutes)
+        return
 
     detector = SensorOfflineDetector(offline_threshold_minutes=offline_threshold_minutes)
     postgres_sink = PostgresSink(settings)
