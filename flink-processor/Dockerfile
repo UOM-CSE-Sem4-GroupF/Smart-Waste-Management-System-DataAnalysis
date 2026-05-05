@@ -7,4 +7,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "job.py", "--mode", "kafka"]
+ENTRYPOINT ["python"]
+CMD ["job.py", "--mode", "kafka"]
