@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import time
 
 from kafka import KafkaConsumer, TopicPartition
 from kafka.errors import NoBrokersAvailable
@@ -119,16 +120,23 @@ def run_kafka_mode(
         settings.kafka_vehicle_location_topic,
     )
 
+    last_status_at = time.monotonic()
     try:
         while True:
             records = consumer.poll(timeout_ms=3000)
             if not records:
+                if time.monotonic() - last_status_at > 30:
+                    logger.info("Pipeline 4 heartbeat: Waiting for new messages from %s...", settings.kafka_vehicle_location_topic)
+                    last_status_at = time.monotonic()
                 continue
+            
+            last_status_at = time.monotonic()
 
             for tp, messages in records.items():
                 for message in messages:
                     payload = message.value
                     read_count += 1
+                    logger.info("Received vehicle location: %s", str(payload)[:100])
 
                     if process_single_event(
                         raw_event=payload,
@@ -156,8 +164,11 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     settings = load_settings()
 
-    logging.basicConfig(level=settings.log_level)
+    logging.basicConfig(level=settings.log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("flink-pipeline-4")
+
+    # Suppress noisy library logs
+    logging.getLogger("kafka").setLevel(logging.ERROR)
 
     processor = VehiclePositionProcessor()
     influx_sink = InfluxSink(settings)

@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, Iterable, List
 
 from kafka import KafkaConsumer, TopicPartition
@@ -17,7 +18,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Flink Pipeline 2 - Zone Aggregation")
     parser.add_argument(
         "--mode",
-        choices=["kafka", "local"],
+        choices=["kafka", "local", "pyflink-kafka"],
         default="kafka",
         help="Execution mode.",
     )
@@ -173,11 +174,17 @@ def run_kafka_mode(
         settings.kafka_zone_input_topic,
     )
 
+    last_status_at = time.monotonic()
     try:
         while True:
             records = consumer.poll(timeout_ms=3000)
             if not records:
+                if time.monotonic() - last_status_at > 30:
+                    logger.info("Pipeline 2 heartbeat: Waiting for new messages from %s...", settings.kafka_zone_input_topic)
+                    last_status_at = time.monotonic()
                 continue
+            
+            last_status_at = time.monotonic()
 
             for tp, messages in records.items():
                 for message in messages:
@@ -187,6 +194,7 @@ def run_kafka_mode(
                         continue
 
                     read_count += 1
+                    logger.info("Received event for zone processing: %s", str(payload)[:100])
                     emitted_count += process_single_event(
                         raw_event=payload,
                         processor=processor,
@@ -209,12 +217,61 @@ def run_kafka_mode(
     )
 
 
+def run_pyflink_kafka_mode(settings) -> None:
+    """
+    Flink-native version of Pipeline 2.
+    Uses Kafka Source (SQL Connector) + ZoneAggregationFlinkSink (FlatMap).
+    """
+    from pyflink.common import WatermarkStrategy
+    from pyflink.common.typeinfo import Types
+    from pyflink.datastream import StreamExecutionEnvironment
+    from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
+    from pyflink.datastream.formats.json import JsonRowDeserializationSchema
+
+    from sinks.flink_sinks import ZoneAggregationFlinkSink
+
+    env = StreamExecutionEnvironment.get_execution_environment()
+    
+    # Optional: Load Kafka SQL JAR if needed (should be in /opt/flink/lib already)
+    # env.add_jars(f"file://{settings.flink_kafka_jar}")
+
+    # 1. Source: waste.bin.processed
+    # We use SimpleStringSchema for maximum flexibility matching Pipeline 1.
+    from pyflink.common.serialization import SimpleStringSchema
+    source_str = (
+        KafkaSource.builder()
+        .set_bootstrap_servers(settings.kafka_bootstrap_servers)
+        .set_topics(settings.kafka_zone_input_topic)
+        .set_group_id("flink-pipeline-2-group")
+        .set_value_only_deserializer(SimpleStringSchema())
+        .set_starting_offsets(KafkaOffsetsInitializer.earliest())
+    )
+
+    if settings.kafka_username and settings.kafka_password:
+        source_str.set_property("security.protocol", settings.kafka_security_protocol)
+        source_str.set_property("sasl.mechanism", settings.kafka_sasl_mechanism)
+        source_str.set_property("sasl.jaas.config", 
+            f'org.apache.kafka.common.security.scram.ScramLoginModule required username="{settings.kafka_username}" password="{settings.kafka_password}";')
+
+    ds = env.from_source(source_str.build(), WatermarkStrategy.no_watermarks(), "KafkaProcessedBinSource")
+
+    (
+        ds
+        .flat_map(ZoneAggregationFlinkSink(settings), output_type=Types.STRING())
+        .print()
+    )
+
+    env.execute("Flink Pipeline 2 - Zone Aggregation")
+
 def main() -> None:
     args = build_arg_parser().parse_args()
     settings = load_settings()
 
-    logging.basicConfig(level=settings.log_level)
+    logging.basicConfig(level=settings.log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("flink-pipeline-2")
+
+    # Suppress noisy library logs
+    logging.getLogger("kafka").setLevel(logging.ERROR)
 
     window_minutes = _get_int_env("ZONE_WINDOW_MINUTES", 10)
     slide_minutes = _get_int_env("ZONE_SLIDE_MINUTES", 2)
@@ -240,6 +297,8 @@ def main() -> None:
                 logger=logger,
                 max_messages=args.max_messages,
             )
+        elif args.mode == "pyflink-kafka":
+            run_pyflink_kafka_mode(settings)
         else:
             run_kafka_mode(
                 settings=settings,

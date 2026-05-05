@@ -158,10 +158,18 @@ def run_kafka_mode(
         tick_interval_s,
     )
 
+    last_status_at = time.monotonic()
     try:
         while True:
             # ── poll() for live messages ──────────────────────────────────────
             records = consumer.poll(timeout_ms=3000)
+
+            if not records:
+                if time.monotonic() - last_status_at > 30:
+                    logger.info("Pipeline 5 heartbeat: Waiting for heartbeats from %s...", settings.kafka_input_topic)
+                    last_status_at = time.monotonic()
+            else:
+                last_status_at = time.monotonic()
 
             for tp, messages in records.items():
                 for message in messages:
@@ -179,6 +187,7 @@ def run_kafka_mode(
 
                     detector.record_heartbeat(bin_id, timestamp)
                     read_count += 1
+                    logger.info("Received heartbeat for offline detection: bin_id=%s", bin_id)
 
                     if max_messages > 0 and read_count >= max_messages:
                         logger.info("Reached max-messages=%d. Stopping.", max_messages)
@@ -214,8 +223,11 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     settings = load_settings()
 
-    logging.basicConfig(level=settings.log_level)
+    logging.basicConfig(level=settings.log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("flink-pipeline-5")
+
+    # Suppress noisy library logs
+    logging.getLogger("kafka").setLevel(logging.ERROR)
 
     offline_threshold_minutes = _get_int_env("OFFLINE_THRESHOLD_MINUTES", 30)
     tick_interval_s = _get_int_env("TICK_INTERVAL_SECONDS", 60)

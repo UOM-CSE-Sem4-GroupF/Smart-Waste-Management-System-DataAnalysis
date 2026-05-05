@@ -49,13 +49,20 @@ class Settings:
     local_test_input_file: str
     local_zone_test_input_file: str
 
+    # Zone aggregation settings
+    zone_window_minutes: int
+    zone_slide_minutes: int
+
 
 
 def _get_int(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
         return default
-    return int(raw)
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
 
 def _get_bool(name: str, default: bool) -> bool:
@@ -105,4 +112,6 @@ def load_settings() -> Settings:
             "LOCAL_ZONE_TEST_INPUT_FILE",
             "./tests/data/processed_bin_sample.jsonl",
         ),
+        zone_window_minutes=_get_int("ZONE_WINDOW_MINUTES", 10),
+        zone_slide_minutes=_get_int("ZONE_SLIDE_MINUTES", 2),
     )

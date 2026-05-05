@@ -113,16 +113,17 @@ class PostgresSink:
             with conn.cursor() as cur:
                 query = sql.SQL(
                     """
-                    INSERT INTO zone_snapshots (
+                    INSERT INTO f2.zone_snapshots (
                         zone_id,
                         snapshot_at,
-                        avg_fill_level,
+                        avg_fill_level_pct,
                         urgent_bin_count,
+                        critical_bin_count,
                         total_bins,
                         dominant_waste_category,
                         total_estimated_kg,
                         window_minutes
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """
                 )
                 cur.execute(
@@ -132,6 +133,7 @@ class PostgresSink:
                         self._to_datetime(record.get("snapshot_at")),
                         record.get("avg_fill_level"),
                         record.get("urgent_bin_count"),
+                        record.get("critical_bin_count"),
                         record.get("total_bins"),
                         record.get("dominant_waste_category"),
                         record.get("total_estimated_kg"),
