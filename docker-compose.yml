@@ -18,6 +18,7 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     networks:
       - waste-network
+      - garabadge
     healthcheck:
       test: echo ruok | nc localhost 2181
       interval: 10s
@@ -42,6 +43,7 @@ services:
       - "9092:9092"
     networks:
       - waste-network
+      - garabadge
     healthcheck:
       test: kafka-broker-api-versions --bootstrap-server localhost:29092
       interval: 10s
@@ -72,6 +74,7 @@ services:
       '
     networks:
       - waste-network
+      - garabadge
     profiles: ["init"]
 
   # ================================================================
@@ -90,57 +93,16 @@ services:
       - postgres_airflow_data:/var/lib/postgresql/data
     networks:
       - waste-network
+      - garabadge
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # PostgreSQL for Waste Management (F2 schema)
-  postgres-waste:
-    image: postgres:15-alpine
-    container_name: waste-postgres-waste
-    environment:
-      POSTGRES_DB: waste_management
-      POSTGRES_USER: waste_admin
-      POSTGRES_PASSWORD: waste_admin_password
-    volumes:
-      - postgres_waste_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
-    networks:
-      - waste-network
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "waste_admin"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
-  # InfluxDB for time-series data
-  influxdb:
-    image: influxdb:2.7-alpine
-    container_name: waste-influxdb
-    environment:
-      INFLUXDB_DB: waste_metrics
-      INFLUXDB_ADMIN_USER: admin
-      INFLUXDB_ADMIN_PASSWORD: admin12345
-      INFLUXDB_INIT_MODE: setup
-      INFLUXDB_INIT_USERNAME: admin
-      INFLUXDB_INIT_PASSWORD: admin12345
-      INFLUXDB_INIT_ORG: waste-org
-      INFLUXDB_INIT_BUCKET: waste-bootstrap
-      INFLUXDB_INIT_ADMIN_TOKEN: my-super-token
-      INFLUXDB_INIT_RETENTION: 30d
-    ports:
-      - "8086:8086"
-    volumes:
-      - influxdb_data:/var/lib/influxdb2
-    networks:
-      - waste-network
-    healthcheck:
-      test: ["CMD", "influx", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+
+
 
   # ================================================================
   # ML & MODEL MANAGEMENT
@@ -158,6 +120,7 @@ services:
       - mlflow_data:/mlflow
     networks:
       - waste-network
+      - garabadge
     command: >
       mlflow server
       --host 0.0.0.0
@@ -188,18 +151,17 @@ services:
       SERVICE_VERSION: ${SERVICE_VERSION}
       MLFLOW_REGISTRY_ENABLED: ${MLFLOW_REGISTRY_ENABLED}
       ML_SERVICE_FALLBACK_MODE: ${ML_SERVICE_FALLBACK_MODE}
-      POSTGRES_HOST: postgres-waste
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-waste_management}
+      POSTGRES_USER: ${POSTGRES_USER:-waste_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waste_admin_password}
     depends_on:
-      postgres-waste:
-        condition: service_healthy
       mlflow:
         condition: service_healthy
     networks:
       - waste-network
+      - garabadge
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -226,32 +188,29 @@ services:
       KAFKA_ZONE_INPUT_TOPIC: ${KAFKA_PROCESSED_TOPIC}
       KAFKA_ZONE_OUTPUT_TOPIC: ${KAFKA_ZONE_TOPIC}
       KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL}
-      POSTGRES_HOST: postgres-waste
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      INFLUX_URL: ${INFLUX_URL}
-      INFLUX_ORG: ${INFLUX_ORG}
-      INFLUX_TOKEN: ${INFLUX_TOKEN}
-      INFLUX_ENABLED: ${INFLUX_ENABLED}
-      INFLUX_RAW_BUCKET: ${INFLUX_RAW_BUCKET}
-      INFLUX_PROCESSED_BUCKET: ${INFLUX_PROCESSED_BUCKET}
-      INFLUX_ZONE_BUCKET: ${INFLUX_ZONE_BUCKET}
-      INFLUX_VEHICLE_BUCKET: ${INFLUX_VEHICLE_BUCKET}
+      POSTGRES_DB: ${POSTGRES_DB:-waste_management}
+      POSTGRES_USER: ${POSTGRES_USER:-waste_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waste_admin_password}
+      INFLUX_URL: ${INFLUX_URL:-http://influxdb:8086}
+      INFLUX_ORG: ${INFLUX_ORG:-waste-org}
+      INFLUX_TOKEN: ${INFLUX_TOKEN:-my-super-token}
+      INFLUX_ENABLED: ${INFLUX_ENABLED:-true}
+      INFLUX_RAW_BUCKET: ${INFLUX_RAW_BUCKET:-waste-telemetry-raw}
+      INFLUX_PROCESSED_BUCKET: ${INFLUX_PROCESSED_BUCKET:-waste-telemetry-processed}
+      INFLUX_ZONE_BUCKET: ${INFLUX_ZONE_BUCKET:-waste-zone-stats}
+      INFLUX_VEHICLE_BUCKET: ${INFLUX_VEHICLE_BUCKET:-waste-vehicle-stats}
       FLINK_INPUT_MODE: kafka
     depends_on:
       kafka:
-        condition: service_healthy
-      postgres-waste:
-        condition: service_healthy
-      influxdb:
         condition: service_healthy
       # kafka-topics-init runs as an initialization helper (profile: init).
       # Remove strict dependency to allow compose to start; topics initializer
       # runs separately when needed.
     networks:
       - waste-network
+      - garabadge
     volumes:
       - flink_logs:/opt/flink/logs
 
@@ -266,12 +225,11 @@ services:
       NODE_ENV: production
       PORT: 8001
       HOST: 0.0.0.0
-      DATABASE_URL: postgresql://${POSTGRES_USER:-waste_admin}:${POSTGRES_PASSWORD:-waste_admin_password}@postgres-waste:5432/${POSTGRES_DB:-waste_management}?schema=f2
-    depends_on:
-      postgres-waste:
-        condition: service_healthy
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waste_admin}:${POSTGRES_PASSWORD:-waste_admin_password}@postgres:5432/${POSTGRES_DB:-waste_management}?schema=f2
+
     networks:
       - waste-network
+      - garabadge
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8001/health"]
       interval: 30s
@@ -290,20 +248,19 @@ services:
       KAFKA_INPUT_TOPIC: ${KAFKA_PROCESSED_TOPIC}
       KAFKA_OUTPUT_TOPIC: ${KAFKA_ROUTES_TOPIC}
       KAFKA_GROUP_ID: ${ROUTE_OPTIMIZER_GROUP_ID}
-      DB_HOST: postgres-waste
+      DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      ROUTE_OPTIMIZER_URGENCY_THRESHOLD: ${ROUTE_OPTIMIZER_URGENCY_THRESHOLD}
+      DB_NAME: ${POSTGRES_DB:-waste_management}
+      DB_USER: ${POSTGRES_USER:-waste_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-waste_admin_password}
+      ROUTE_OPTIMIZER_URGENCY_THRESHOLD: ${ROUTE_OPTIMIZER_URGENCY_THRESHOLD:-70}
     depends_on:
       kafka:
-        condition: service_healthy
-      postgres-waste:
         condition: service_healthy
       # kafka-topics-init is an init helper (run with `--profile init`)
     networks:
       - waste-network
+      - garabadge
 
   flink-sensor-offline:
     build:
@@ -317,21 +274,20 @@ services:
       KAFKA_INPUT_TOPIC: ${KAFKA_TELEMETRY_TOPIC}
       KAFKA_OUTPUT_TOPIC: ${KAFKA_PROCESSED_TOPIC}
       KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL}
-      POSTGRES_HOST: postgres-waste
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-waste_management}
+      POSTGRES_USER: ${POSTGRES_USER:-waste_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waste_admin_password}
       # Override defaults if needed via env file
       OFFLINE_THRESHOLD_MINUTES: ${OFFLINE_THRESHOLD_MINUTES:-30}
       TICK_INTERVAL_SECONDS: ${TICK_INTERVAL_SECONDS:-60}
     depends_on:
       kafka:
         condition: service_healthy
-      postgres-waste:
-        condition: service_healthy
     networks:
       - waste-network
+      - garabadge
 
   # ================================================================
   # BATCH PROCESSING & ORCHESTRATION
@@ -355,11 +311,11 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_SCHEDULE_TRIGGER_TOPIC: ${KAFKA_SCHEDULE_TRIGGER_TOPIC}
       KAFKA_MODEL_RETRAINED_TOPIC: ${KAFKA_MODEL_RETRAINED_TOPIC}
-      POSTGRES_HOST: postgres-waste
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-waste_management}
+      POSTGRES_USER: ${POSTGRES_USER:-waste_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-waste_admin_password}
     ports:
       - "8080:8080"
     volumes:
@@ -376,6 +332,7 @@ services:
       # kafka-topics-init is an init helper (run with `--profile init`)
     networks:
       - waste-network
+      - garabadge
     command: >
       bash -c "
       airflow db init;
@@ -399,6 +356,7 @@ services:
       - "7077:7077"
     networks:
       - waste-network
+      - garabadge
     profiles: ["analytics"]
 
   spark-worker:
@@ -415,6 +373,7 @@ services:
       - spark-master
     networks:
       - waste-network
+      - garabadge
     profiles: ["analytics"]
 
   # ================================================================
@@ -436,6 +395,7 @@ services:
       # kafka-topics-init is an init helper (run with `--profile init`)
     networks:
       - waste-network
+      - garabadge
     profiles: ["test"]
 
 # ================================================================
@@ -445,6 +405,8 @@ services:
 networks:
   waste-network:
     driver: bridge
+  garabadge:
+    external: true
 
 # ================================================================
 # VOLUMES

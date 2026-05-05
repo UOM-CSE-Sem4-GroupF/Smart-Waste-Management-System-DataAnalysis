@@ -5,13 +5,15 @@ import { prisma } from "./db";
 import { binsRoutes } from "./routes/bins";
 import { clustersRoutes } from "./routes/clusters";
 import { metadataRoutes } from "./routes/metadata";
+import fastifySwagger from "@fastify/swagger";
+import fastifySwaggerUi from "@fastify/swagger-ui";
 
 const PORT = parseInt(process.env.PORT ?? "8001", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";
 
 const server = Fastify({
   logger: {
-    level: process.env.NODE_ENV === "production" ? "warn" : "info",
+    level: "info",
     transport:
       process.env.NODE_ENV !== "production"
         ? { target: "pino-pretty" }
@@ -45,6 +47,28 @@ async function start() {
   try {
     // ── Plugins ─────────────────────────────────────────────────────────────────
     await server.register(cors, { origin: true });
+
+    await server.register(fastifySwagger, {
+      swagger: {
+        info: {
+          title: "SWMS Core API",
+          description: "Metadata gateway for Smart Waste Management System",
+          version: "1.0.0",
+        },
+        host: "localhost:8001",
+        schemes: ["http"],
+        consumes: ["application/json"],
+        produces: ["application/json"],
+      },
+    });
+
+    await server.register(fastifySwaggerUi, {
+      routePrefix: "/docs",
+      uiConfig: {
+        docExpansion: "list",
+        deepLinking: false,
+      },
+    });
 
     // ── Routes ──────────────────────────────────────────────────────────────────
     await server.register(binsRoutes, { prefix: "/api/v1" });

@@ -29,7 +29,8 @@ model WasteCategory {
   created_at       DateTime @default(now()) @db.Timestamptz
   updated_at       DateTime @default(now()) @db.Timestamptz
 
-  bins             Bin[]
+  bins                     Bin[]
+  vehicle_waste_categories VehicleWasteCategory[]
 
   @@map("waste_categories")
   @@schema("f2")
