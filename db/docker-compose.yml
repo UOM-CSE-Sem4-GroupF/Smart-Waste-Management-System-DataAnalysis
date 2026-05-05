@@ -42,6 +42,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - default
+      - garabadge
 
   influxdb-setup:
     image: influxdb:2.7
@@ -55,6 +58,9 @@ services:
       INFLUXDB_TOKEN: ${INFLUXDB_INIT_ADMIN_TOKEN:-my-super-token}
     volumes:
       - ./influx/setup-buckets.sh:/scripts/setup-buckets.sh:ro
+    networks:
+      - default
+      - garabadge
     entrypoint: ["sh", "/scripts/setup-buckets.sh"]
 
 volumes:

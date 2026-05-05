@@ -35,6 +35,10 @@ def _adapt_for_postgres(event: Dict[str, Any]) -> Dict[str, Any]:
         "predicted_full_at": payload.get("predicted_full_at"),
         "fill_rate_pct_per_hour": payload.get("fill_rate_pct_per_hour"),
         "battery_level_pct": payload.get("battery_level_pct"),
+        "cluster_id": payload.get("cluster_id"),
+        "zone_id": payload.get("zone_id"),
+        "waste_category_id": payload.get("waste_category_id"),
+        "volume_litres": payload.get("volume_litres"),
         "event_ts": event.get("timestamp"),  # top-level field in spec format
         "last_collected_at": None,
     }
@@ -130,6 +134,30 @@ class KafkaProcessedFlinkSink(MapFunction):
             self._kafka.close()
 
 
+class KafkaVehicleDeviationFlinkSink(MapFunction):
+    """Publishes the vehicle deviation alert to the waste.vehicle.deviation topic and passes value through."""
+
+    def __init__(self, settings):
+        self._settings = settings
+        self._kafka = None
+
+    def open(self, runtime_context: RuntimeContext):
+        from sinks.kafka_sink import KafkaSink
+        self._kafka = KafkaSink(self._settings)
+
+    def map(self, value: str) -> str:
+        try:
+            event = json.loads(value) if isinstance(value, str) else value
+            self._kafka.publish_vehicle_deviation(event)
+        except Exception:
+            logger.exception("KafkaVehicleDeviationFlinkSink.map failed")
+        return value
+
+    def close(self):
+        if self._kafka is not None:
+            self._kafka.close()
+
+
 class ZoneAggregationFlinkSink(FlatMapFunction):
     """Processes events through ZoneAggregationProcessor and sinks to Influx/Postgres/Kafka."""
 
@@ -172,12 +200,21 @@ class ZoneAggregationFlinkSink(FlatMapFunction):
                 self._influx.write_zone_statistics(snapshot)
                 # 2. Write to Postgres
                 self._pg.insert_zone_snapshot(snapshot)
+
+                # Wrap in standard spec format for Kafka and downstream consumers
+                wrapped = {
+                    "version": "1.0",
+                    "source_service": "flink-pipeline-2",
+                    "timestamp": snapshot.get("snapshot_at"),
+                    "payload": snapshot
+                }
+
                 # 3. Publish to Kafka
-                self._kafka.publish_zone_statistics(snapshot)
+                self._kafka.publish_zone_statistics(wrapped)
                 
                 print(f"DEBUG: Emitted Zone Snapshot: Zone={snapshot.get('zone_id')} Time={snapshot.get('snapshot_at')}")
                 # 4. Emit for print/debug
-                yield json.dumps(snapshot, default=str)
+                yield json.dumps(wrapped, default=str)
         except Exception as e:
             print(f"ERROR: ZoneAggregationFlinkSink failed: {str(e)}")
             logger.exception("ZoneAggregationFlinkSink failed")

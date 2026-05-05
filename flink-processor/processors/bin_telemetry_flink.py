@@ -256,4 +256,12 @@ class BinTelemetryFlinkProcessor(KeyedProcessFunction):
             "anomaly_flags": [anomaly] if anomaly else [],
         }
 
-        yield json.dumps(processed, default=str)
+        # Wrap in standard spec format
+        output = {
+            "version": "1.0",
+            "source_service": "flink-pipeline-1",
+            "timestamp": timestamp_str,
+            "payload": processed
+        }
+
+        yield json.dumps(output, default=str)

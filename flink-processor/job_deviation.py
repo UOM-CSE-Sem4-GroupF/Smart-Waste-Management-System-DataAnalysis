@@ -17,7 +17,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Flink Pipeline 3 - Vehicle Deviation Detector")
     parser.add_argument(
         "--mode",
-        choices=["kafka"],
+        choices=["kafka", "pyflink-kafka"],
         default="kafka",
         help="Execution mode.",
     )
@@ -156,6 +156,46 @@ def run_kafka_mode(
     )
 
 
+def run_pyflink_kafka_mode(settings) -> None:
+    import json
+    from pyflink.common import Types, WatermarkStrategy
+    from pyflink.datastream import StreamExecutionEnvironment
+    from pyflink.datastream.connectors.kafka import KafkaOffsetsInitializer, KafkaSource
+    
+    from sinks.flink_sinks import KafkaVehicleDeviationFlinkSink
+    from processors.vehicle_deviation_flink import VehicleDeviationFlinkProcessor
+
+    env = StreamExecutionEnvironment.get_execution_environment()
+
+    from pyflink.common.serialization import SimpleStringSchema
+    source_str = (
+        KafkaSource.builder()
+        .set_bootstrap_servers(settings.kafka_bootstrap_servers)
+        .set_topics(settings.kafka_vehicle_location_topic)
+        .set_group_id("flink-pipeline-3-group")
+        .set_value_only_deserializer(SimpleStringSchema())
+        .set_starting_offsets(KafkaOffsetsInitializer.earliest())
+    )
+
+    if settings.kafka_username and settings.kafka_password:
+        source_str.set_property("security.protocol", settings.kafka_security_protocol)
+        source_str.set_property("sasl.mechanism", settings.kafka_sasl_mechanism)
+        source_str.set_property("sasl.jaas.config", 
+            f'org.apache.kafka.common.security.scram.ScramLoginModule required username="{settings.kafka_username}" password="{settings.kafka_password}";')
+
+    ds = env.from_source(source_str.build(), WatermarkStrategy.no_watermarks(), "KafkaVehicleLocationSource")
+
+    (
+        ds
+        .key_by(lambda s: json.loads(s).get("vehicle_id", "unknown") if isinstance(s, str) else "unknown")
+        .process(VehicleDeviationFlinkProcessor(), output_type=Types.STRING())
+        .map(KafkaVehicleDeviationFlinkSink(settings), output_type=Types.STRING())
+        .print()
+    )
+
+    env.execute("Flink Pipeline 3 - Vehicle Deviation Detector")
+
+
 def main() -> None:
     args = build_arg_parser().parse_args()
     settings = load_settings()
@@ -165,6 +205,11 @@ def main() -> None:
 
     # Suppress noisy library logs
     logging.getLogger("kafka").setLevel(logging.ERROR)
+
+    if args.mode == "pyflink-kafka":
+        logger.info("Pipeline 3 starting in pyflink-kafka mode")
+        run_pyflink_kafka_mode(settings)
+        return
 
     route_store = None
     kafka_sink = None
