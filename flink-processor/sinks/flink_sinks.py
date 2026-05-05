@@ -246,13 +246,50 @@ class VehiclePositionFlinkSink(MapFunction):
         try:
             event_dict = json.loads(value) if isinstance(value, str) else value
             processed = self._processor.process(event_dict)
-            self._influx.write_vehicle_position(processed)
+            if processed:
+                print(f"DEBUG: Pipeline 4 writing to Influx: {processed.get('vehicle_id')} at {processed.get('timestamp')}")
+                self._influx.write_vehicle_position(processed)
+            else:
+                print("DEBUG: Pipeline 4 processor returned None")
         except self._ValidationError as exc:
+            print(f"DEBUG: Pipeline 4 validation error: {exc}")
             logger.warning("Skipping invalid vehicle location event: %s", exc)
-        except Exception:
+        except Exception as e:
+            print(f"ERROR: Pipeline 4 sink failed: {e}")
             logger.exception("VehiclePositionFlinkSink failed processing event")
         return value
 
+class SensorOfflineFlinkSink(MapFunction):
+    """Marks bin as offline in PostgreSQL and publishes alert to Kafka."""
+
+    def __init__(self, settings):
+        self._settings = settings
+        self._pg = None
+        self._kafka = None
+
+    def open(self, runtime_context: RuntimeContext):
+        from sinks.postgres_sink import PostgresSink
+        from sinks.kafka_sink import KafkaSink
+        
+        self._pg = PostgresSink(self._settings)
+        self._kafka = KafkaSink(self._settings)
+
+    def map(self, value: str) -> str:
+        try:
+            alert = json.loads(value) if isinstance(value, str) else value
+            bin_id = alert.get("bin_id")
+            
+            if bin_id:
+                # 1. Update PostgreSQL
+                self._pg.mark_bin_offline(bin_id)
+                # 2. Publish to Kafka
+                self._kafka.publish_sensor_offline(alert)
+                
+                print(f"DEBUG: Pipeline 5 ALERT: Bin {bin_id} is SENSOR_OFFLINE")
+        except Exception:
+            logger.exception("SensorOfflineFlinkSink failed")
+        return value
+
     def close(self):
-        if self._influx is not None:
-            self._influx.close()
+        if self._pg: self._pg.close()
+        if self._kafka: self._kafka.close()
