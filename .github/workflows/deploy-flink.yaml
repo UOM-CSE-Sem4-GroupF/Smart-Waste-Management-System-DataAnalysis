@@ -1,18 +1,39 @@
-name: Build and Push Flink Processor
+name: Build and Push DataAnalysis Services
 
 on:
   push:
     branches: [ main ]
     paths:
       - 'flink-processor/**'
+      - 'core-api/**'
+      - 'route-optimizer/**'
+      - 'ml-service/**'
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/flink-processor
+  ORG_NAME: uom-cse-sem4-groupf
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [flink-processor, core-api, route-optimizer, ml-service]
+        include:
+          - service: flink-processor
+            context: ./flink-processor
+            image: flink-processor
+          - service: core-api
+            context: ./core-api
+            image: core-api
+          - service: route-optimizer
+            context: ./route-optimizer
+            image: route-optimizer
+          - service: ml-service
+            context: ./ml-service
+            image: ml-service
+
     permissions:
       contents: read
       packages: write
@@ -32,7 +53,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.ORG_NAME }}/${{ matrix.image }}
           tags: |
             type=raw,value=latest
             type=sha,format=short
@@ -40,7 +61,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./flink-processor
+          context: ${{ matrix.context }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
