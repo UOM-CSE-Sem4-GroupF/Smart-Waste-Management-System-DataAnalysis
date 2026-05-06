@@ -549,9 +549,21 @@ if nearest_distance > DEVIATION_THRESHOLD_M:
 
 ---
 
-## 4. Design Decisions & Rationale
+## 4. Top 5 Major Design Decisions
 
-### 4.1 Event-Driven Architecture (Kafka-Centric)
+| # | Decision | Category | Why This Matters | Impact |
+|---|----------|----------|------------------|--------|
+| **1** | **OR-Tools for Route Optimization** | Framework Selection | Industry-standard VRP solver with proven performance on waste routing problems | 100-300ms optimization for 50+ bins; optional greedy fallback |
+| **2** | **Event-Driven Architecture (Kafka)** | Architectural Pattern | Decouples services; enables event replay & auditability | 6000+ events/sec throughput; loose coupling; system resilience |
+| **3** | **FastAPI + MLflow for Predictions** | Framework Selection | Modern async API framework with central model registry & versioning | <50ms response times; zero-downtime model updates; Production-ready |
+| **4** | **Graceful Fallback Heuristics** | Resilience Pattern | Every ML/optimization component has baseline deterministic alternative | >99% availability; no single point of failure; predictable performance |
+| **5** | **Docker Compose for Full-Stack** | Operations | Single command deploys entire system with 7 services + 3 databases | Reproducible environments; 60-second startup; easy local development |
+
+---
+
+## 4.1 Design Decisions & Rationale
+
+### 4.1.1 Event-Driven Architecture (Kafka-Centric)
 
 **Decision:** Use Kafka as central event bus for all service-to-service communication
 
@@ -574,7 +586,7 @@ waste.model.retrained             ← MLflow promotion events
 waste.job.completed               ← Completion notifications
 ```
 
-### 4.2 Layered Fallback Strategy
+### 4.1.2 Layered Fallback Strategy
 
 **Decision:** Every service has baseline heuristic fallback
 
@@ -591,7 +603,7 @@ MLflow unavailable?      → Use model from last successful load
 Kafka unavailable?       → Queue events in memory (with TTL)
 ```
 
-### 4.3 Docker Compose for Local Development
+### 4.1.3 Docker Compose for Local Development
 
 **Decision:** Single `docker-compose.yml` with 7 services + 3 databases
 
@@ -615,7 +627,7 @@ airflow                    # Orchestration
 spark-master + spark-worker # Analytics (profile: analytics)
 ```
 
-### 4.4 MLflow for Model Versioning
+### 4.1.4 MLflow for Model Versioning
 
 **Decision:** Use MLflow for central model registry instead of manual versioning
 
