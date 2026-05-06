@@ -1,148 +1,91 @@
 from __future__ import annotations
 
-from collections import deque
-import json
 import logging
-from typing import Any
 
-from config import load_settings
-from repository import RouteOptimizerRepository
-from service import (
-    build_deterministic_job_id,
-    build_optimized_route_event,
-    persist_optimization_plan,
-    prepare_emergency_run,
-    publish_optimized_route_event,
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+
+from models import SolveRequest, SolveResponse
+from solver import InvalidRequestError, NoFeasibleSolutionError, SolverTimeoutError, solve
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
-from solver import solve_emergency_routes
-
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("route-optimizer")
 
-MAX_PROCESSED_JOB_CACHE = 50_000
+app = FastAPI(
+    title="Route Optimizer",
+    description=(
+        "Capacitated VRP with Time Windows (CVRPTW) optimization service "
+        "for waste collection scheduling. Called exclusively by the scheduler service."
+    ),
+    version="1.0.0",
+)
 
 
-def create_connection(settings):
-    from psycopg2 import connect
-
-    return connect(settings.database_dsn)
-
-
-def create_repository(settings):
-    return RouteOptimizerRepository(lambda: create_connection(settings))
+@app.get("/health", tags=["ops"])
+def health() -> dict:
+    """Health check — no auth required."""
+    return {"status": "ok", "service": "route-optimizer", "version": "1.0.0"}
 
 
-def create_consumer(settings):
-    from kafka import KafkaConsumer
+@app.post(
+    "/internal/route-optimizer/solve",
+    response_model=SolveResponse,
+    tags=["routing"],
+    summary="Solve CVRPTW for a collection job",
+    responses={
+        400: {"description": "Invalid request (e.g. unsupported waste category)"},
+        422: {"description": "No feasible solution (e.g. weight exceeds all vehicles)"},
+        504: {"description": "Solver timeout — no solution within time limit"},
+    },
+)
+def solve_route(request: SolveRequest):
+    """
+    Solve the Capacitated VRP with Time Windows for the given collection job.
 
-    return KafkaConsumer(
-        settings.kafka_input_topic,
-        bootstrap_servers=[settings.kafka_bootstrap_servers],
-        group_id=settings.kafka_group_id,
-        value_deserializer=lambda value: json.loads(value.decode("utf-8")),
-        auto_offset_reset="earliest",
-        enable_auto_commit=False,
-    )
-
-
-def create_producer(settings):
-    from kafka import KafkaProducer
-
-    return KafkaProducer(
-        bootstrap_servers=[settings.kafka_bootstrap_servers],
-        value_serializer=lambda value: json.dumps(value).encode("utf-8"),
-    )
-
-
-def health() -> dict[str, Any]:
-    return {"status": "ok", "service": "route-optimizer", "version": "stage3"}
-
-
-def _track_processed_job(
-    job_id: str,
-    processed_job_ids: set[str],
-    processed_job_order: deque[str],
-) -> None:
-    if job_id in processed_job_ids:
-        return
-
-    processed_job_ids.add(job_id)
-    processed_job_order.append(job_id)
-    if len(processed_job_order) > MAX_PROCESSED_JOB_CACHE:
-        evicted = processed_job_order.popleft()
-        processed_job_ids.discard(evicted)
-
-
-def handle_event(
-    event: dict[str, Any],
-    repository: RouteOptimizerRepository,
-    producer: Any,
-    settings: Any,
-    processed_job_ids: set[str],
-    processed_job_order: deque[str],
-) -> bool:
-    result = prepare_emergency_run(event, repository, settings)
-    if result is None:
-        logger.info("skipping non-urgent event for bin %s", event.get("payload", {}).get("bin_id"))
-        return True
-
-    snapshot = result.snapshot
-    plan = solve_emergency_routes(snapshot)
-    job_id = build_deterministic_job_id(snapshot)
-    if job_id in processed_job_ids:
-        logger.info("skipping duplicate event for job_id=%s", job_id)
-        return True
-
-    persistence = persist_optimization_plan(repository, snapshot, plan, job_id)
-    if persistence.already_exists:
-        _track_processed_job(job_id, processed_job_ids, processed_job_order)
-        logger.info("route plan already persisted for job_id=%s; skipping publish", job_id)
-        return True
-
-    output_event = build_optimized_route_event(snapshot, plan, job_id)
-    publish_optimized_route_event(producer, settings.kafka_output_topic, output_event)
-    _track_processed_job(job_id, processed_job_ids, processed_job_order)
+    Returns an optimised ordered route for the assigned vehicle.
+    Falls back to nearest-neighbour when OR-Tools cannot find a solution
+    within the configured time limit.
+    """
     logger.info(
-        "optimized zone=%s job_id=%s solver=%s urgent_bins=%s vehicles=%s routes=%s unassigned=%s inserted_rows=%s total_weight=%.2f",
-        snapshot.zone_id,
-        job_id,
-        plan.solver_used,
-        result.urgent_bins_count,
-        result.vehicle_count,
-        len(plan.routes),
-        len(plan.unassigned_bins),
-        persistence.inserted_rows,
-        plan.total_weight_kg,
+        "solve request job_id=%s job_type=%s clusters=%d bins=%d vehicles=%d",
+        request.job_id,
+        request.job_type,
+        len(request.clusters),
+        len(request.bins),
+        len(request.available_vehicles),
     )
-    return True
 
+    try:
+        response = solve(request)
+    except InvalidRequestError as exc:
+        logger.warning("invalid request job_id=%s: %s", request.job_id, exc)
+        return JSONResponse(
+            status_code=400,
+            content={"error": "INVALID_REQUEST", "detail": str(exc)},
+        )
+    except NoFeasibleSolutionError as exc:
+        logger.warning("no feasible solution job_id=%s: %s", request.job_id, exc)
+        return JSONResponse(
+            status_code=422,
+            content={"error": "NO_FEASIBLE_SOLUTION", "detail": str(exc)},
+        )
+    except SolverTimeoutError as exc:
+        logger.warning("solver timeout job_id=%s: %s", request.job_id, exc)
+        return JSONResponse(
+            status_code=504,
+            content={"error": "SOLVER_TIMEOUT", "detail": str(exc)},
+        )
 
-def run() -> None:
-    settings = load_settings()
-    repository = create_repository(settings)
-    consumer = create_consumer(settings)
-    producer = create_producer(settings)
-    processed_job_ids: set[str] = set()
-    processed_job_order: deque[str] = deque()
-
-    logger.info("route optimizer ready; waiting for urgent bin events")
-    for message in consumer:
-        event = message.value
-        try:
-            should_commit = handle_event(
-                event,
-                repository,
-                producer,
-                settings,
-                processed_job_ids,
-                processed_job_order,
-            )
-            if should_commit:
-                consumer.commit()
-        except Exception as exc:
-            logger.exception("failed to prepare optimization input: %s", exc)
-
-
-if __name__ == "__main__":
-    run()
+    logger.info(
+        "solved job_id=%s method=%s vehicle=%s waypoints=%d distance_km=%.2f minutes=%d",
+        response.job_id,
+        response.method,
+        response.vehicle_id,
+        len(response.waypoints),
+        response.total_distance_km,
+        response.estimated_minutes,
+    )
+    return response

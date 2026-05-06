@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -13,4 +13,5 @@ COPY . ./
 RUN useradd --create-home --shell /bin/bash routeopt && chown -R routeopt:routeopt /app
 USER routeopt
 
-CMD ["python", "app.py"]
+EXPOSE 8083
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8083"]

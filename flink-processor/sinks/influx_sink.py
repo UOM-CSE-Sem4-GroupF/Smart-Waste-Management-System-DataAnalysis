@@ -151,7 +151,7 @@ class InfluxSink:
 
         vehicle_id = event.get("vehicle_id")
         if vehicle_id is not None:
-            point.field("vehicle_id", str(vehicle_id))
+            point.tag("vehicle_id", str(vehicle_id))
 
         latitude = event.get("latitude")
         if isinstance(latitude, (int, float)):
@@ -163,12 +163,21 @@ class InfluxSink:
 
         job_id = event.get("job_id")
         if job_id is not None:
-            point.field("job_id", str(job_id))
+            point.tag("job_id", str(job_id))
 
-        timestamp = self._parse_timestamp(event.get("timestamp"))
-        if timestamp is not None:
-            point.time(timestamp, WritePrecision.MS)
-            point.field("timestamp", timestamp.isoformat())
+        # Support both datetime objects and epoch timestamps
+        ts = event.get("timestamp")
+        if isinstance(ts, (int, float)):
+            # Convert epoch ms to datetime if it's a large number
+            if ts > 1e12:
+                ts = datetime.fromtimestamp(ts / 1000.0)
+            else:
+                ts = datetime.fromtimestamp(ts)
+        
+        parsed_ts = self._parse_timestamp(ts)
+        if parsed_ts is not None:
+            point.time(parsed_ts, WritePrecision.MS)
+            point.field("timestamp_str", parsed_ts.isoformat())
 
         self._write_point(self.settings.influx_vehicle_bucket, point)
 

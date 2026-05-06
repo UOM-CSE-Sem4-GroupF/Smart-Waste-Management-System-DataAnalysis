@@ -19,14 +19,17 @@ class MetadataStore:
     """
     PostgreSQL metadata store for bin enrichment.
 
-    Schema mapping (db/init.sql):
-    - bins.id, bins.zone_id, bins.lat, bins.lng, bins.volume_litres, bins.waste_category_id, bins.active
-    - city_zones.id, city_zones.active
-    - waste_categories.id, waste_categories.avg_kg_per_litre
+    Schema mapping (database-schema-v3):
+    - f2.bins.id, f2.bins.cluster_id, f2.bins.lat, f2.bins.lng,
+      f2.bins.volume_litres, f2.bins.depth_cm, f2.bins.waste_category_id, f2.bins.active
+    - f2.bin_clusters.id, f2.bin_clusters.zone_id
+    - f2.city_zones.id, f2.city_zones.active
+    - f2.waste_categories.id, f2.waste_categories.avg_kg_per_litre,
+      f2.waste_categories.name, f2.waste_categories.special_handling
 
     Uses connection pooling and caching to efficiently fetch:
-    - Bin metadata (zone_id, location, volume, waste category)
-    - Waste category properties (avg_kg_per_litre)
+    - Bin metadata (cluster_id, zone_id, location, volume, depth, waste category)
+    - Waste category properties (avg_kg_per_litre, special_handling for e_waste bump)
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -103,22 +106,30 @@ class MetadataStore:
             try:
                 cur = conn.cursor()
 
-                # Keep SQL fully aligned with db/init.sql table relationships.
+                # V3 schema: bins belong to clusters, clusters belong to zones.
+                # We join f2.bin_clusters to get cluster_id and resolve zone_id
+                # through the cluster (not directly from the bin).
+                # special_handling is used for the e_waste urgency +10 bump (spec §4).
                 query = sql.SQL("""
                     SELECT
-                        b.id AS bin_id,
-                        b.zone_id,
-                        b.lat AS latitude,
-                        b.lng AS longitude,
+                        b.id              AS bin_id,
+                        b.cluster_id,
+                        bc.zone_id        AS zone_id,
+                        bc.lat            AS latitude,
+                        bc.lng            AS longitude,
                         b.volume_litres,
+                        b.depth_cm,
                         b.waste_category_id,
-                        wc.avg_kg_per_litre
-                    FROM bins b
-                                        INNER JOIN city_zones cz ON b.zone_id = cz.id
-                    LEFT JOIN waste_categories wc ON b.waste_category_id = wc.id
-                                        WHERE b.id = %s
-                                            AND b.active = TRUE
-                                            AND cz.active = TRUE
+                        wc.avg_kg_per_litre,
+                        wc.name           AS waste_category_name,
+                        wc.special_handling
+                    FROM f2.bins b
+                    JOIN f2.bin_clusters bc ON b.cluster_id = bc.id
+                    JOIN f2.city_zones cz   ON bc.zone_id = cz.id
+                    LEFT JOIN f2.waste_categories wc ON b.waste_category_id = wc.id
+                    WHERE b.id = %s
+                      AND b.active = TRUE
+                      AND cz.active = TRUE
                 """)
 
                 cur.execute(query, (bin_id,))
@@ -130,13 +141,17 @@ class MetadataStore:
                     return None
 
                 metadata = {
-                    "bin_id": row[0],
-                    "zone_id": row[1],
-                    "latitude": float(row[2]) if row[2] else None,
-                    "longitude": float(row[3]) if row[3] else None,
-                    "volume_litres": float(row[4]) if row[4] else None,
-                    "waste_category_id": row[5],
-                    "avg_kg_per_litre": float(row[6]) if row[6] else None,
+                    "bin_id":               row[0],
+                    "cluster_id":           row[1],
+                    "zone_id":              row[2],
+                    "latitude":             float(row[3]) if row[3] else None,
+                    "longitude":            float(row[4]) if row[4] else None,
+                    "volume_litres":        float(row[5]) if row[5] else None,
+                    "depth_cm":             int(row[6]) if row[6] else None,
+                    "waste_category_id":    row[7],
+                    "avg_kg_per_litre":     float(row[8]) if row[8] else None,
+                    "waste_category_name":  row[9],
+                    "special_handling":     bool(row[10]) if row[10] is not None else False,
                 }
 
                 # Cache the result

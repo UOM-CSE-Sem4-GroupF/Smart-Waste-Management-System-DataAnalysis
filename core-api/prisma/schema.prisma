@@ -1,0 +1,241 @@
+// Prisma schema for F2 core-api
+// Targets the f2 schema in the waste_management PostgreSQL database.
+// Run `npx prisma db pull` against the live database to auto-sync this schema.
+// Run `npx prisma generate` to regenerate the TypeScript client after any change.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["f2"]
+}
+
+// ──────────────────────────────────────────────────────────────
+// F2 SCHEMA MODELS
+// ──────────────────────────────────────────────────────────────
+
+model WasteCategory {
+  id               Int      @id @default(autoincrement())
+  name             String   @unique @db.VarChar(50)
+  avg_kg_per_litre Decimal  @db.Decimal(5, 3)
+  colour_code      String   @db.VarChar(7)
+  recyclable       Boolean  @default(false)
+  special_handling Boolean  @default(false)
+  description      String?  @db.Text
+  created_at       DateTime @default(now()) @db.Timestamptz
+  updated_at       DateTime @default(now()) @db.Timestamptz
+
+  bins                     Bin[]
+  vehicle_waste_categories VehicleWasteCategory[]
+
+  @@map("waste_categories")
+  @@schema("f2")
+}
+
+model CityZone {
+  id               Int      @id @default(autoincrement())
+  name             String   @db.VarChar(100)
+  code             String   @unique @db.VarChar(20)
+  boundary_geojson Json?
+  collection_day   String?  @db.VarChar(10)
+  collection_time  DateTime? @db.Time
+  supervisor_id    String?  @db.VarChar(100)
+  active           Boolean  @default(true)
+  notes            String?  @db.Text
+  created_at       DateTime @default(now()) @db.Timestamptz
+  updated_at       DateTime @default(now()) @db.Timestamptz
+
+  clusters         BinCluster[]
+  route_plans      RoutePlan[]
+  zone_snapshots   ZoneSnapshot[]
+
+  @@map("city_zones")
+  @@schema("f2")
+}
+
+model Vehicle {
+  id             String   @id @db.VarChar(20)
+  registration   String   @unique @db.VarChar(20)
+  vehicle_type   String   @db.VarChar(20)
+  max_cargo_kg   Decimal  @db.Decimal(8, 2)
+  volume_m3      Decimal? @db.Decimal(6, 2)
+  driver_id      String?  @db.VarChar(20)
+  status         String   @default("available") @db.VarChar(20)
+  active         Boolean  @default(true)
+  last_service_at DateTime? @db.Timestamptz
+  notes          String?  @db.Text
+  created_at     DateTime @default(now()) @db.Timestamptz
+  updated_at     DateTime @default(now()) @db.Timestamptz
+
+  waste_categories VehicleWasteCategory[]
+  route_plans      RoutePlan[]
+
+  @@map("vehicles")
+  @@schema("f2")
+}
+
+model VehicleWasteCategory {
+  vehicle_id  String  @db.VarChar(20)
+  category_id Int
+
+  vehicle  Vehicle       @relation(fields: [vehicle_id], references: [id], onDelete: Cascade)
+  category WasteCategory @relation(fields: [category_id], references: [id])
+
+  @@id([vehicle_id, category_id])
+  @@map("vehicle_waste_categories")
+  @@schema("f2")
+}
+
+model BinCluster {
+  id           String   @id @db.VarChar(20)
+  zone_id      Int
+  name         String   @db.VarChar(100)
+  lat          Decimal  @db.Decimal(10, 7)
+  lng          Decimal  @db.Decimal(10, 7)
+  address      String?  @db.Text
+  cluster_type String?  @db.VarChar(30)
+  active       Boolean  @default(true)
+  notes        String?  @db.Text
+  created_at   DateTime @default(now()) @db.Timestamptz
+  updated_at   DateTime @default(now()) @db.Timestamptz
+
+  zone CityZone @relation(fields: [zone_id], references: [id])
+  bins Bin[]
+
+  @@map("bin_clusters")
+  @@schema("f2")
+}
+
+model Bin {
+  id                 String   @id @db.VarChar(20)
+  cluster_id         String   @db.VarChar(20)
+  waste_category_id  Int
+  volume_litres      Decimal  @db.Decimal(8, 2)
+  lat                Decimal? @db.Decimal(10, 7)
+  lng                Decimal? @db.Decimal(10, 7)
+  address            String?  @db.Text
+  active             Boolean  @default(true)
+  installed_at       DateTime? @db.Timestamptz
+  last_maintained_at DateTime? @db.Timestamptz
+  notes              String?  @db.Text
+  depth_cm           Int      @default(120)
+  created_at         DateTime @default(now()) @db.Timestamptz
+  updated_at         DateTime @default(now()) @db.Timestamptz
+
+  cluster        BinCluster    @relation(fields: [cluster_id], references: [id])
+  waste_category WasteCategory @relation(fields: [waste_category_id], references: [id])
+  current_state  BinCurrentState?
+  device         Device?
+
+  @@map("bins")
+  @@schema("f2")
+}
+
+model BinCurrentState {
+  bin_id               String   @id @db.VarChar(20)
+  fill_level_pct       Decimal  @db.Decimal(5, 2)
+  battery_level_pct    Decimal? @db.Decimal(5, 2)
+  signal_strength_dbm  Decimal? @db.Decimal(6, 2)
+  temperature_c        Decimal? @db.Decimal(5, 2)
+  estimated_weight_kg  Decimal? @db.Decimal(8, 2)
+  fill_rate_pct_per_hour Decimal? @db.Decimal(6, 3)
+  predicted_full_at    DateTime? @db.Timestamptz
+  status               String   @default("normal") @db.VarChar(20)
+  urgency_score        Int      @default(0)
+  cluster_id           String   @db.VarChar(20)
+  zone_id              Int
+  waste_category_id    Int
+  volume_litres        Decimal  @db.Decimal(8, 2)
+  last_reading_at      DateTime @db.Timestamptz
+  last_collected_at    DateTime? @db.Timestamptz
+  updated_at           DateTime @default(now()) @db.Timestamptz
+
+  bin Bin @relation(fields: [bin_id], references: [id])
+
+  @@map("bin_current_state")
+  @@schema("f2")
+}
+
+model Device {
+  id                       String   @id @db.VarChar(50)
+  bin_id                   String?  @unique @db.VarChar(20)
+  device_type              String   @db.VarChar(30)
+  sleep_interval_normal_s  Int      @default(600)
+  sleep_interval_monitor_s Int      @default(300)
+  sleep_interval_urgent_s  Int      @default(120)
+  sleep_interval_critical_s Int     @default(30)
+  urgency_threshold_monitor  Int    @default(50)
+  urgency_threshold_urgent   Int    @default(75)
+  urgency_threshold_critical Int    @default(90)
+  mqtt_topic               String?  @db.VarChar(200)
+  firmware_target_version  String?  @db.VarChar(20)
+  firmware_current_version String?  @db.VarChar(20)
+  status                   String   @default("provisioned") @db.VarChar(20)
+  last_seen_at             DateTime? @db.Timestamptz
+  battery_level_pct        Decimal? @db.Decimal(5, 2)
+  signal_strength_dbm      Decimal? @db.Decimal(6, 2)
+  provisioned_at           DateTime? @default(now()) @db.Timestamptz
+  provisioned_by           String?  @db.VarChar(100)
+  certificate_fingerprint  String?  @db.VarChar(200)
+  last_config_pushed_at    DateTime? @db.Timestamptz
+  last_config_ack_at       DateTime? @db.Timestamptz
+  notes                    String?  @db.Text
+  created_at               DateTime @default(now()) @db.Timestamptz
+  updated_at               DateTime @default(now()) @db.Timestamptz
+
+  bin Bin? @relation(fields: [bin_id], references: [id])
+
+  @@map("devices")
+  @@schema("f2")
+}
+
+model RoutePlan {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job_id                 String?  @db.Uuid
+  vehicle_id             String   @db.VarChar(20)
+  route_type             String   @db.VarChar(20)
+  zone_id                Int?
+  waypoints              Json
+  total_clusters         Int
+  total_bins             Int
+  estimated_weight_kg    Decimal  @db.Decimal(8, 2)
+  estimated_distance_km  Decimal? @db.Decimal(8, 2)
+  estimated_minutes      Int?
+  or_tools_solver_time_ms Int?
+  solver_method          String?  @db.VarChar(30)
+  valid_for_date         DateTime? @db.Date
+  status                 String   @default("planned") @db.VarChar(20)
+  superseded_by_id       String?  @db.Uuid
+  created_at             DateTime @default(now()) @db.Timestamptz
+
+  vehicle  Vehicle   @relation(fields: [vehicle_id], references: [id])
+  zone     CityZone? @relation(fields: [zone_id], references: [id])
+
+  @@map("route_plans")
+  @@schema("f2")
+}
+
+model ZoneSnapshot {
+  id                      BigInt   @id @default(autoincrement())
+  zone_id                 Int
+  snapshot_at             DateTime @db.Timestamptz
+  window_minutes          Int      @default(10)
+  avg_fill_level_pct      Decimal? @db.Decimal(5, 2)
+  urgent_bin_count        Int      @default(0)
+  critical_bin_count      Int      @default(0)
+  total_bins              Int?
+  total_clusters          Int?
+  total_estimated_kg      Decimal? @db.Decimal(10, 2)
+  dominant_waste_category String?  @db.VarChar(50)
+  category_breakdown      Json?
+  created_at              DateTime @default(now()) @db.Timestamptz
+
+  zone CityZone @relation(fields: [zone_id], references: [id])
+
+  @@map("zone_snapshots")
+  @@schema("f2")
+}

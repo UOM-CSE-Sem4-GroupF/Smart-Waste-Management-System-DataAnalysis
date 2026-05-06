@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -18,9 +19,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Flink Pipeline 1 - Bin Telemetry Processor")
     parser.add_argument(
         "--mode",
-        choices=["kafka", "local", "pyflink-local"],
+        choices=["kafka", "local", "pyflink-local", "pyflink-kafka"],
         default="kafka",
-        help="Execution mode.",
+        help="Execution mode. 'pyflink-kafka' runs the stateful KeyedProcessFunction pipeline.",
     )
     parser.add_argument(
         "--max-messages",
@@ -127,8 +128,7 @@ def _build_kafka_consumer(settings) -> KafkaConsumer:
         "bootstrap_servers": settings.kafka_bootstrap_servers,
         "value_deserializer": lambda b: json.loads(b.decode("utf-8")),
         "auto_offset_reset": "latest",
-        "enable_auto_commit": True,
-        "group_id": "flink-pipeline1-processor",
+        "api_version": (2, 5, 0),
     }
     if settings.kafka_username and settings.kafka_password:
         consumer_config.update(
@@ -139,7 +139,7 @@ def _build_kafka_consumer(settings) -> KafkaConsumer:
                 "sasl_plain_password": settings.kafka_password,
             }
         )
-    return KafkaConsumer(settings.kafka_input_topic, **consumer_config)
+    return KafkaConsumer(**consumer_config)
 
 
 def run_kafka_mode(
@@ -151,15 +151,23 @@ def run_kafka_mode(
     logger: logging.Logger,
     max_messages: int,
 ) -> None:
+    from kafka import TopicPartition
     consumer = _build_kafka_consumer(settings)
+    
+    # Manually assign partitions to bypass Group Coordinator hangs on remote clusters
+    partitions = [TopicPartition(settings.kafka_input_topic, p) for p in range(6)]
+    consumer.assign(partitions)
+    consumer.seek_to_end(*partitions)
+    
     processed_count = 0
     read_count = 0
-    logger.info("Kafka mode started. Consuming from topic: %s", settings.kafka_input_topic)
+    logger.info("Kafka mode started (Manual Assign). Consuming from topic: %s", settings.kafka_input_topic)
 
     try:
         for message in consumer:
             payload = message.value
             read_count += 1
+            logger.info("Received raw message: %s", str(payload)[:100])
 
             if isinstance(payload, dict):
                 processed_ok = process_single_event(
@@ -265,12 +273,115 @@ def run_pyflink_local_mode(settings, logger: logging.Logger, max_messages: int) 
     )
 
 
+def run_pyflink_kafka_mode(settings, logger: logging.Logger) -> None:
+    """
+    Stateful PyFlink DataStream pipeline (Pipeline 1 — Bin Telemetry).
+
+    Requires the PyFlink Kafka connector JAR on the classpath. Set the
+    FLINK_KAFKA_JAR env var to the absolute path of the JAR, or place it at
+    the default path printed in the error message when the JAR is missing.
+    """
+    try:
+        from pyflink.common import Types, WatermarkStrategy
+        from pyflink.datastream import StreamExecutionEnvironment, CheckpointingMode
+        from pyflink.datastream.connectors.kafka import (
+            KafkaSource,
+            KafkaOffsetsInitializer,
+        )
+        from pyflink.common.serialization import SimpleStringSchema
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyFlink is not installed. Run: pip install apache-flink==1.20.0"
+        ) from exc
+
+    from processors.bin_telemetry_flink import BinTelemetryFlinkProcessor
+    from sinks.flink_sinks import (
+        ProcessedBinInfluxFlinkSink,
+        BinStateFlinkSink,
+        KafkaProcessedFlinkSink,
+    )
+
+    env = StreamExecutionEnvironment.get_execution_environment()
+    env.set_parallelism(2)
+
+    # Exactly-once checkpointing every 30 seconds (spec §3)
+    env.enable_checkpointing(30_000)
+    env.get_checkpoint_config().set_checkpointing_mode(CheckpointingMode.EXACTLY_ONCE)
+    env.get_checkpoint_config().set_min_pause_between_checkpoints(5_000)
+
+    # Kafka connector JAR — required for from_source()
+    jar_path = os.getenv("FLINK_KAFKA_JAR", "")
+    if jar_path and Path(jar_path).exists():
+        env.add_jars(f"file://{Path(jar_path).resolve()}")
+    elif jar_path:
+        logger.warning("FLINK_KAFKA_JAR path does not exist: %s — proceeding without it", jar_path)
+
+    # Build Kafka source
+    source_builder = (
+        KafkaSource.builder()
+        .set_bootstrap_servers(settings.kafka_bootstrap_servers)
+        .set_topics(settings.kafka_input_topic)
+        .set_group_id("flink-pipeline1-pyflink")
+        .set_starting_offsets(KafkaOffsetsInitializer.latest())
+        .set_value_only_deserializer(SimpleStringSchema())
+    )
+    if settings.kafka_username and settings.kafka_password:
+        source_builder = source_builder.set_properties(
+            {
+                "security.protocol": settings.kafka_security_protocol,
+                "sasl.mechanism": settings.kafka_sasl_mechanism,
+                "sasl.jaas.config": (
+                    f"org.apache.kafka.common.security.scram.ScramLoginModule required "
+                    f'username="{settings.kafka_username}" '
+                    f'password="{settings.kafka_password}";'
+                ),
+            }
+        )
+    kafka_source = source_builder.build()
+
+    raw_stream = env.from_source(
+        kafka_source,
+        WatermarkStrategy.no_watermarks(),
+        "Kafka:waste.bin.telemetry",
+    )
+
+    # Key by bin_id then run stateful processor; output is JSON strings
+    processor = BinTelemetryFlinkProcessor()
+    processed_stream = (
+        raw_stream
+        .key_by(
+            lambda s: json.loads(s).get("payload", {}).get("bin_id", "unknown"),
+            key_type=Types.STRING(),
+        )
+        .process(processor, output_type=Types.STRING())
+    )
+
+    # Chain sink MapFunctions. add_sink() requires Java interop; .map() works for pure-Python I/O.
+    # Each step writes to its destination as a side effect and passes the JSON string through.
+    # .print() at the end anchors the graph so Flink includes all operators in the execution plan.
+    (
+        processed_stream
+        .map(ProcessedBinInfluxFlinkSink(settings), output_type=Types.STRING())
+        .map(BinStateFlinkSink(settings), output_type=Types.STRING())
+        .map(KafkaProcessedFlinkSink(settings), output_type=Types.STRING())
+        .print()
+    )
+
+    logger.info("Submitting PyFlink job: Pipeline 1 — Bin Telemetry")
+    env.execute("Pipeline 1 — Bin Telemetry (stateful)")
+
+
 def main() -> None:
     args = build_arg_parser().parse_args()
     settings = load_settings()
 
-    logging.basicConfig(level=settings.log_level)
+    logging.basicConfig(level=settings.log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger("flink-pipeline-1")
+
+    # Suppress noise from apache_beam (which is used by PyFlink)
+    logging.getLogger("apache_beam").setLevel(logging.WARNING)
+    # Specifically suppress the BigQuery storage warning if it's still being noisy
+    logging.getLogger("apache_beam.io.gcp.bigquery").setLevel(logging.ERROR)
 
     logger.info("Pipeline execution started. Mode=%s", args.mode)
     metadata_store = None
@@ -300,6 +411,8 @@ def main() -> None:
                 logger=logger,
                 max_messages=args.max_messages,
             )
+        elif args.mode == "pyflink-kafka":
+            run_pyflink_kafka_mode(settings=settings, logger=logger)
         else:
             metadata_store = MetadataStore(settings)
             processor = BinTelemetryProcessor(metadata_store)
