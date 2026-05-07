@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from pyflink.common import Types
-from pyflink.common.state import ValueStateDescriptor
+from pyflink.datastream.state import ValueStateDescriptor
 from pyflink.datastream import KeyedProcessFunction, RuntimeContext
 from pyflink.datastream.functions import Collector
 

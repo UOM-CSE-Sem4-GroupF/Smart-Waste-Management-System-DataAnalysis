@@ -30,6 +30,12 @@ def health() -> dict:
     return {"status": "ok", "service": "route-optimizer", "version": "1.0.0"}
 
 
+@app.get("/ready", tags=["ops"])
+def ready() -> dict:
+    """Readiness check — stateless service is ready as soon as it starts."""
+    return {"status": "ready", "service": "route-optimizer", "version": "1.0.0"}
+
+
 @app.post(
     "/internal/route-optimizer/solve",
     response_model=SolveResponse,
