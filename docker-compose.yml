@@ -56,23 +56,10 @@ services:
       kafka:
         condition: service_healthy
     entrypoint: >
-      bash -c '
-      echo "Creating Kafka topics...";
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.bin.telemetry --partitions 6 --replication-factor 1 || true;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.bin.processed --partitions 6 --replication-factor 1 || true;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.zone.statistics --partitions 3 --replication-factor 1 || true;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.vehicle.location --partitions 4 --replication-factor 1 || true;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.vehicle.deviation --partitions 2 --replication-factor 1 || true;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.routes.optimized --partitions 3 --replication-factor 1 || true;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.routine.schedule.trigger --partitions 1 --replication-factor 1 || true;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.model.retrained --partitions 1 --replication-factor 1 || true;
-      kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.job.completed --partitions 3 --replication-factor 1 || true;
-      kafka-topics --list --bootstrap-server kafka:29092;
-      echo "✅ Kafka topics initialized"
-      '
+      bash -c ' echo "Creating Kafka topics..."; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.bin.telemetry --partitions 6 --replication-factor 1 || true; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.bin.processed --partitions 6 --replication-factor 1 || true; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.zone.statistics --partitions 3 --replication-factor 1 || true; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.vehicle.location --partitions 4 --replication-factor 1 || true; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.vehicle.deviation --partitions 2 --replication-factor 1 || true; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.routes.optimized --partitions 3 --replication-factor 1 || true; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.routine.schedule.trigger --partitions 1 --replication-factor 1 || true; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.model.retrained --partitions 1 --replication-factor 1 || true; kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic waste.job.completed --partitions 3 --replication-factor 1 || true; kafka-topics --list --bootstrap-server kafka:29092; echo "✅ Kafka topics initialized" '
     networks:
       - waste-network
-    profiles: ["init"]
+    profiles: [ "init" ]
 
   # ================================================================
   # DATA STORAGE LAYER
@@ -91,7 +78,7 @@ services:
     networks:
       - waste-network
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: [ "CMD", "pg_isready", "-U", "airflow" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -110,10 +97,23 @@ services:
     networks:
       - waste-network
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "waste_admin"]
+      test: [ "CMD", "pg_isready", "-U", "waste_admin" ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  ############### tast - 5 ######################
+  # Web interface for Database
+  adminer:
+    image: adminer
+    container_name: waste-adminer
+    restart: always
+    ports:
+      - "8081:8080"
+    networks:
+      - waste-network
+
+  #########################################
 
   # InfluxDB for time-series data
   influxdb:
@@ -137,7 +137,7 @@ services:
     networks:
       - waste-network
     healthcheck:
-      test: ["CMD", "influx", "ping"]
+      test: [ "CMD", "influx", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -147,7 +147,7 @@ services:
   # ================================================================
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:latest
+    image: ghcr.io/mlflow/mlflow:v2.10.2
     container_name: waste-mlflow
     ports:
       - "5000:5000"
@@ -159,13 +159,9 @@ services:
     networks:
       - waste-network
     command: >
-      mlflow server
-      --host 0.0.0.0
-      --port 5000
-      --backend-store-uri sqlite:////mlflow/mlflow.db
-      --default-artifact-root /mlflow/artifacts
+      mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000', timeout=5)"]
+      test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000', timeout=5)" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -201,7 +197,7 @@ services:
     networks:
       - waste-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -314,6 +310,7 @@ services:
       - ./airflow/dags:/airflow/dags
       - ./airflow/logs:/airflow/logs
       - ./airflow/plugins:/airflow/plugins
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres-airflow:
         condition: service_healthy
@@ -325,14 +322,7 @@ services:
     networks:
       - waste-network
     command: >
-      bash -c "
-      airflow db init;
-      airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true;
-      sleep 5;
-      airflow webserver -p 8080 &
-      sleep 10;
-      airflow scheduler
-      "
+      bash -c " airflow db init; airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true; sleep 5; airflow webserver -p 8080 & sleep 10; airflow scheduler "
 
   # Spark (optional, for batch analytics)
   spark-master:
@@ -347,7 +337,7 @@ services:
       - "7077:7077"
     networks:
       - waste-network
-    profiles: ["analytics"]
+    profiles: [ "analytics" ]
 
   spark-worker:
     image: bitnami/spark:3.5.0
@@ -363,7 +353,7 @@ services:
       - spark-master
     networks:
       - waste-network
-    profiles: ["analytics"]
+    profiles: [ "analytics" ]
 
   # ================================================================
   # TESTING & MONITORING
@@ -384,7 +374,7 @@ services:
       # kafka-topics-init is an init helper (run with `--profile init`)
     networks:
       - waste-network
-    profiles: ["test"]
+    profiles: [ "test" ]
 
 # ================================================================
 # NETWORKS

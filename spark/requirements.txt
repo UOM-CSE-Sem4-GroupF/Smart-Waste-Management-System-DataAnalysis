@@ -1,0 +1,7 @@
+mlflow
+scikit-learn
+pandas
+numpy
+psycopg2-binary
+kafka-python
+pyspark==3.3.4
