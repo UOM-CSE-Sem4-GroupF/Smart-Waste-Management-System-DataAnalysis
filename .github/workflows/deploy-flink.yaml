@@ -1,6 +1,7 @@
 name: Build and Push DataAnalysis Services
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
     paths:
@@ -65,3 +66,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Make package public
+        continue-on-error: true
+        run: |
+          gh api --method PATCH \
+            "/orgs/${{ env.ORG_NAME }}/packages/container/${{ matrix.image }}" \
+            -f visibility=public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
