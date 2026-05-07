@@ -9,6 +9,8 @@ on:
       - 'core-api/**'
       - 'route-optimizer/**'
       - 'ml-service/**'
+      - 'airflow/**'
+      - 'spark/**'
 
 env:
   REGISTRY: ghcr.io
@@ -20,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [flink-processor, core-api, route-optimizer, ml-service]
+        service: [flink-processor, core-api, route-optimizer, ml-service, airflow, spark]
         include:
           - service: flink-processor
             context: ./flink-processor
@@ -34,6 +36,12 @@ jobs:
           - service: ml-service
             context: ./ml-service
             image: ml-service
+          - service: airflow
+            context: ./airflow
+            image: airflow
+          - service: spark
+            context: ./spark
+            image: spark
 
     permissions:
       contents: read
