@@ -6,7 +6,6 @@ from typing import Dict, Any, Optional
 from pyflink.common import Types
 from pyflink.datastream.state import ValueStateDescriptor
 from pyflink.datastream import KeyedProcessFunction, RuntimeContext
-from pyflink.datastream.functions import Collector
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ class SensorOfflineFlinkProcessor(KeyedProcessFunction):
         alert_sent_desc = ValueStateDescriptor("alert_sent_state", Types.BOOLEAN())
         self.alert_sent_state = runtime_context.get_state(alert_sent_desc)
 
-    def process_element(self, value: str, ctx: KeyedProcessFunction.Context, out: Collector):
+    def process_element(self, value: str, ctx: KeyedProcessFunction.Context, out):
         try:
             event = json.loads(value)
             # In the telemetry stream, bin_id is usually in the top level or payload
@@ -73,7 +72,7 @@ class SensorOfflineFlinkProcessor(KeyedProcessFunction):
         except Exception:
             logger.exception("SensorOfflineFlinkProcessor.process_element failed")
 
-    def on_timer(self, timestamp: int, ctx: KeyedProcessFunction.OnTimerContext, out: Collector):
+    def on_timer(self, timestamp: int, ctx: KeyedProcessFunction.OnTimerContext, out):
         last_seen_ms = self.last_seen_state.value()
         alert_sent = self.alert_sent_state.value()
 
