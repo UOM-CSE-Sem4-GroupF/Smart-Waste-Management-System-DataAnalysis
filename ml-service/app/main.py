@@ -33,6 +33,16 @@ def health() -> HealthResponse:
     )
 
 
+@app.get("/ready")
+def ready() -> dict:
+    """Readiness check — service is ready once models are loaded."""
+    return {
+        "status": "ready",
+        "service": SETTINGS.service_name,
+        "model_version": predictor.model_version,
+    }
+
+
 @app.post("/internal/models/reload")
 def reload_models() -> dict:
     """Reload models from MLflow. Called by Airflow after training."""
