@@ -4,11 +4,11 @@ import math
 import time
 import requests
 import sys
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
 from config import load_settings
-
 from models import (
     BinInput,
     ClusterInput,
@@ -18,6 +18,7 @@ from models import (
     Waypoint,
 )
 
+logger = logging.getLogger("route-optimizer.solver")
 
 # ── Custom exceptions ─────────────────────────────────────────────────────────
 
@@ -71,6 +72,60 @@ def build_distance_matrix(locations: list) -> list:
     return matrix
 
 
+def encode_polyline(points: List[dict]) -> str:
+    """
+    Encode a list of lat/lng dicts into a Google Encoded Polyline string.
+    """
+    def encode_value(value):
+        value = int(round(value * 1e5))
+        value = ~(value << 1) if value < 0 else value << 1
+        res = ""
+        while value >= 0x20:
+            res += chr((0x20 | (value & 0x1f)) + 63)
+            value >>= 5
+        res += chr(value + 63)
+        return res
+
+    res = ""
+    last_lat = 0
+    last_lng = 0
+    for p in points:
+        lat = int(round(p["lat"] * 1e5))
+        lng = int(round(p["lng"] * 1e5))
+        res += encode_value((lat - last_lat))
+        res += encode_value((lng - last_lng))
+        last_lat = lat
+        last_lng = lng
+    return res
+
+
+def get_road_polyline(coords: List[dict]) -> Optional[str]:
+    """
+    Fetch road-snapped polyline from OSRM with straight-line fallback.
+    """
+    if len(coords) < 2:
+        return None
+
+    settings = load_settings()
+    coord_str = ";".join([f"{c['lng']},{c['lat']}" for c in coords])
+    url = f"{settings.osrm_server_url}/route/v1/driving/{coord_str}"
+
+    logger.debug("fetching polyline from OSRM: %d points", len(coords))
+    try:
+        resp = requests.get(url, params={"overview": "full", "geometries": "polyline"}, timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("routes"):
+                logger.info("OSRM road-snapping successful")
+                return data["routes"][0].get("geometry")
+        logger.warning("OSRM failed with status %d: %s", resp.status_code, resp.text)
+    except Exception as e:
+        logger.error("OSRM request exception: %s", e)
+
+    logger.info("falling back to straight-line encoded polyline")
+    return encode_polyline(coords)
+
+
 def urgency_to_deadline_minutes(urgency_score: int) -> int:
     """Convert urgency score to collection deadline in minutes from now."""
     if urgency_score >= 90:
@@ -80,32 +135,6 @@ def urgency_to_deadline_minutes(urgency_score: int) -> int:
     if urgency_score >= 70:
         return 240
     return 480  # routine bins — full shift window
-
-
-def get_road_polyline(coords: List[dict]) -> Optional[str]:
-    """
-    Fetch road-snapped polyline from OSRM.
-    Coords list: [{"lat": 6.1, "lng": 79.1}, ...]
-    """
-    if len(coords) < 2:
-        return None
-
-    settings = load_settings()
-    # OSRM expects {lng},{lat} pairs
-    coord_str = ";".join([f"{c['lng']},{c['lat']}" for c in coords])
-    url = f"{settings.osrm_server_url}/route/v1/driving/{coord_str}"
-
-    try:
-        # Use a short timeout to prevent blocking the solver too long
-        resp = requests.get(url, params={"overview": "full", "geometries": "polyline"}, timeout=3)
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("routes"):
-                return data["routes"][0].get("geometry")
-    except Exception:
-        # Silently fail and return None so the solver can still return waypoints
-        pass
-    return None
 
 
 # ── Data model builder (spec §6) ──────────────────────────────────────────────
@@ -120,6 +149,8 @@ def build_data_model(request: SolveRequest) -> dict:
       [N+M]            = depot (end for all vehicles)
     """
     n_vehicles = len(request.available_vehicles)
+    logger.debug("building data model: vehicles=%d, clusters=%d, bins=%d", 
+                 n_vehicles, len(request.clusters), len(request.bins))
 
     vehicle_starts = [
         {"lat": v.current_lat, "lng": v.current_lng}
@@ -209,6 +240,7 @@ def validate_request(request: SolveRequest) -> None:
     # Total weight must not exceed combined vehicle capacity
     total_weight = sum(b.estimated_weight_kg for b in request.bins)
     max_combined = sum(v.max_cargo_kg for v in request.available_vehicles)
+    logger.debug("validating weight: total=%.2f kg, capacity=%.2f kg", total_weight, max_combined)
     if total_weight > max_combined:
         raise NoFeasibleSolutionError(
             f"Total weight {total_weight:,.0f} kg exceeds all available vehicles "
@@ -295,11 +327,14 @@ def extract_solution(
             best_coords = route_coords
 
     if best_vehicle_idx is None or not best_route:
+        logger.error("OR-Tools failed to extract a viable route from solution")
         raise NoFeasibleSolutionError(
             "OR-Tools produced a solution but no viable vehicle route was extracted"
         )
 
     vehicle = request.available_vehicles[best_vehicle_idx]
+    logger.info("extracted best route: vehicle=%s, distance=%.2f km", 
+                vehicle.vehicle_id, best_distance / 1000)
     total_minutes = sum(w.stop_duration_minutes for w in best_route)
     total_minutes += int(best_distance / 1000 / AVG_SPEED_KMH * 60)
 
@@ -325,6 +360,7 @@ def _nearest_neighbour_fallback(request: SolveRequest, start_time: float) -> Sol
     Greedy nearest-neighbour fallback used when OR-Tools is unavailable or
     returns no solution within the time limit.
     """
+    logger.info("starting nearest-neighbour fallback solver")
     now = datetime.utcnow()
 
     # Pick the vehicle with largest capacity that supports all required categories
@@ -538,10 +574,13 @@ def solve(request: SolveRequest) -> SolveResponse:
     search_params.time_limit.seconds = request.time_limit_seconds
 
     # 6. Solve
+    logger.info("invoking OR-Tools solver...")
     solution = routing.SolveWithParameters(search_params)
     solver_time_ms = int((time.time() - start_time) * 1000)
 
     if solution:
+        logger.info("OR-Tools found a solution in %d ms", solver_time_ms)
         return extract_solution(manager, routing, solution, request, data, solver_time_ms)
     else:
+        logger.warning("OR-Tools failed to find a solution; triggering fallback")
         return _nearest_neighbour_fallback(request, start_time)
