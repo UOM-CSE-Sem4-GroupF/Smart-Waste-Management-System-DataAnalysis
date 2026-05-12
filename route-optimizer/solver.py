@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import math
 import time
+import requests
+import sys
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
+
+from config import load_settings
 
 from models import (
     BinInput,
@@ -76,6 +80,32 @@ def urgency_to_deadline_minutes(urgency_score: int) -> int:
     if urgency_score >= 70:
         return 240
     return 480  # routine bins — full shift window
+
+
+def get_road_polyline(coords: List[dict]) -> Optional[str]:
+    """
+    Fetch road-snapped polyline from OSRM.
+    Coords list: [{"lat": 6.1, "lng": 79.1}, ...]
+    """
+    if len(coords) < 2:
+        return None
+
+    settings = load_settings()
+    # OSRM expects {lng},{lat} pairs
+    coord_str = ";".join([f"{c['lng']},{c['lat']}" for c in coords])
+    url = f"{settings.osrm_server_url}/route/v1/driving/{coord_str}"
+
+    try:
+        # Use a short timeout to prevent blocking the solver too long
+        resp = requests.get(url, params={"overview": "full", "geometries": "polyline"}, timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("routes"):
+                return data["routes"][0].get("geometry")
+    except Exception:
+        # Silently fail and return None so the solver can still return waypoints
+        pass
+    return None
 
 
 # ── Data model builder (spec §6) ──────────────────────────────────────────────
@@ -205,15 +235,19 @@ def extract_solution(
     best_vehicle_idx = None
     best_route: list = []
     best_distance = float("inf")
+    best_coords: List[dict] = []
 
     for vehicle_idx in range(n_vehicles):
         index = routing.Start(vehicle_idx)
         route: list = []
+        route_coords: List[dict] = []
         route_distance = 0
         cumulative_weight = 0.0
 
         while not routing.IsEnd(index):
             node = manager.IndexToNode(index)
+            loc = data["locations"][node]
+            route_coords.append({"lat": loc["lat"], "lng": loc["lng"]})
 
             # Process cluster nodes only (skip vehicle starts and depot)
             if cluster_offset <= node < data["depot_index"]:
@@ -249,10 +283,16 @@ def extract_solution(
             index = solution.Value(routing.NextVar(index))
             route_distance += routing.GetArcCostForVehicle(prev_index, index, vehicle_idx)
 
+        # Add the end (depot) coordinate
+        end_node = manager.IndexToNode(index)
+        end_loc = data["locations"][end_node]
+        route_coords.append({"lat": end_loc["lat"], "lng": end_loc["lng"]})
+
         if route and route_distance < best_distance:
             best_vehicle_idx = vehicle_idx
             best_route = route
             best_distance = route_distance
+            best_coords = route_coords
 
     if best_vehicle_idx is None or not best_route:
         raise NoFeasibleSolutionError(
@@ -274,6 +314,7 @@ def extract_solution(
         estimated_minutes=total_minutes,
         total_weight_kg=best_route[-1].cumulative_weight_kg if best_route else 0.0,
         optimality_gap_pct=None,
+        polyline=get_road_polyline(best_coords),
     )
 
 
@@ -358,6 +399,12 @@ def _nearest_neighbour_fallback(request: SolveRequest, start_time: float) -> Sol
     total_distance_m += depot_dist
     elapsed_minutes += int(depot_dist / 1000 / AVG_SPEED_KMH * 60)
 
+    # Collect coordinates for polyline
+    route_coords = [{"lat": best_vehicle.current_lat, "lng": best_vehicle.current_lng}]
+    for wp in waypoints:
+        route_coords.append({"lat": wp.lat, "lng": wp.lng})
+    route_coords.append({"lat": request.depot.lat, "lng": request.depot.lng})
+
     return SolveResponse(
         success=True,
         job_id=request.job_id,
@@ -369,18 +416,50 @@ def _nearest_neighbour_fallback(request: SolveRequest, start_time: float) -> Sol
         estimated_minutes=elapsed_minutes,
         total_weight_kg=waypoints[-1].cumulative_weight_kg if waypoints else 0.0,
         optimality_gap_pct=None,
+        polyline=get_road_polyline(route_coords),
     )
+
+
+# ── Callbacks (Moved to top-level to avoid closure issues) ───────────────────
+
+def create_distance_callback(manager, data):
+    def distance_callback(from_index: int, to_index: int) -> int:
+        fn = manager.IndexToNode(from_index)
+        tn = manager.IndexToNode(to_index)
+        n = len(data["distance_matrix"])
+        if fn < 0 or tn < 0 or fn >= n or tn >= n: return 0
+        return int(data["distance_matrix"][fn][tn])
+    return distance_callback
+
+def create_demand_callback(manager, data):
+    def demand_callback(from_index: int) -> int:
+        node = manager.IndexToNode(from_index)
+        n = len(data["demands"])
+        if node < 0 or node >= n: return 0
+        return int(data["demands"][node])
+    return demand_callback
+
+def create_time_callback(manager, data):
+    def time_callback(from_index: int, to_index: int) -> int:
+        fn = manager.IndexToNode(from_index)
+        tn = manager.IndexToNode(to_index)
+        if fn < 0 or tn < 0: return 0
+        return int(data["time_matrix"][fn][tn] + data["service_times"][fn])
+    return time_callback
 
 
 # ── Main entry point (spec §5) ────────────────────────────────────────────────
 
 def solve(request: SolveRequest) -> SolveResponse:
     """
-    Solve the CVRPTW for the given collect job.
-
-    Tries OR-Tools first; falls back to nearest-neighbour when:
-      - OR-Tools is not installed
-      - Solver returns no solution within the time limit
+    Main solve entry point.
+    Flow:
+      - Validate
+      - Build data model
+      - Configure OR-Tools
+      - Solve
+      - Extract result
+      - If OR-Tools fails, fallback to greedy
     """
     start_time = time.time()
 
@@ -392,7 +471,6 @@ def solve(request: SolveRequest) -> SolveResponse:
     except ImportError:
         return _nearest_neighbour_fallback(request, start_time)
 
-    # ── Create routing model ─────────────────────────────────────────────────
     manager = pywrapcp.RoutingIndexManager(
         len(data["locations"]),
         data["n_vehicles"],
@@ -401,41 +479,48 @@ def solve(request: SolveRequest) -> SolveResponse:
     )
     routing = pywrapcp.RoutingModel(manager)
 
-    # ── Distance callback ────────────────────────────────────────────────────
-    def distance_callback(from_index: int, to_index: int) -> int:
-        fn = manager.IndexToNode(from_index)
-        tn = manager.IndexToNode(to_index)
-        return data["distance_matrix"][fn][tn]
-
-    transit_idx = routing.RegisterTransitCallback(distance_callback)
+    # 1. Distance
+    dist_cb = create_distance_callback(manager, data)
+    transit_idx = routing.RegisterTransitCallback(dist_cb)
     routing.SetArcCostEvaluatorOfAllVehicles(transit_idx)
 
-    # ── Capacity constraint ──────────────────────────────────────────────────
-    def demand_callback(from_index: int) -> int:
-        return data["demands"][manager.IndexToNode(from_index)]
-
-    demand_idx = routing.RegisterUnaryTransitCallback(demand_callback)
+    # 2. Capacity
+    dem_cb = create_demand_callback(manager, data)
+    demand_idx = routing.RegisterUnaryTransitCallback(dem_cb)
     routing.AddDimensionWithVehicleCapacity(
         demand_idx, 0, data["vehicle_capacities"], True, "Capacity"
     )
 
-    # ── Time window constraint ───────────────────────────────────────────────
-    def time_callback(from_index: int, to_index: int) -> int:
-        fn = manager.IndexToNode(from_index)
-        tn = manager.IndexToNode(to_index)
-        return data["time_matrix"][fn][tn] + data["service_times"][fn]
-
-    time_idx = routing.RegisterTransitCallback(time_callback)
-    routing.AddDimension(time_idx, 30, 480, False, "Time")
+    # 3. Time
+    time_cb = create_time_callback(manager, data)
+    time_idx = routing.RegisterTransitCallback(time_cb)
+    time_capacities = [480] * data["n_vehicles"]
+    routing.AddDimensionWithVehicleCapacity(
+        time_idx, 30, time_capacities, False, "Time"
+    )
     time_dim = routing.GetDimensionOrDie("Time")
 
-    for loc_idx, window in enumerate(data["time_windows"]):
-        time_dim.CumulVar(manager.NodeToIndex(loc_idx)).SetRange(window[0], window[1])
+    # Cluster nodes — reachable via NodeToIndex
+    for cluster_offset in range(data["n_clusters"]):
+        node = data["n_vehicles"] + cluster_offset
+        time_dim.CumulVar(manager.NodeToIndex(node)).SetRange(
+            data["time_windows"][node][0], data["time_windows"][node][1]
+        )
+    # Vehicle start nodes — must use routing.Start(), not NodeToIndex()
+    for v in range(data["n_vehicles"]):
+        time_dim.CumulVar(routing.Start(v)).SetRange(
+            data["time_windows"][v][0], data["time_windows"][v][1]
+        )
+    # Depot / end nodes — must use routing.End()
+    for v in range(data["n_vehicles"]):
+        time_dim.CumulVar(routing.End(v)).SetRange(
+            data["time_windows"][data["depot_index"]][0],
+            data["time_windows"][data["depot_index"]][1]
+        )
 
-    # ── Waste category constraint ────────────────────────────────────────────
+    # 4. Waste Category & Disjunctions
     penalty = 1_000_000
     n_vehicles = data["n_vehicles"]
-
     for cluster_idx, cluster in enumerate(request.clusters):
         node_index = manager.NodeToIndex(cluster_idx + n_vehicles)
         cluster_categories = {
@@ -446,22 +531,17 @@ def solve(request: SolveRequest) -> SolveResponse:
                 routing.VehicleVar(node_index).RemoveValue(vehicle_idx)
         routing.AddDisjunction([node_index], penalty)
 
-    # ── Search parameters ────────────────────────────────────────────────────
+    # 5. Search Params
     search_params = pywrapcp.DefaultRoutingSearchParameters()
-    search_params.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
-    )
-    search_params.local_search_metaheuristic = (
-        routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-    )
+    search_params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    search_params.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     search_params.time_limit.seconds = request.time_limit_seconds
 
-    # ── Solve ────────────────────────────────────────────────────────────────
+    # 6. Solve
     solution = routing.SolveWithParameters(search_params)
     solver_time_ms = int((time.time() - start_time) * 1000)
 
     if solution:
         return extract_solution(manager, routing, solution, request, data, solver_time_ms)
     else:
-        # Timed out or infeasible — use nearest-neighbour fallback
         return _nearest_neighbour_fallback(request, start_time)

@@ -179,7 +179,9 @@ services:
       DB_USER: ${POSTGRES_USER:-waste_admin}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-waste_admin_password}
       ROUTE_OPTIMIZER_URGENCY_THRESHOLD: ${ROUTE_OPTIMIZER_URGENCY_THRESHOLD:-70}
-      # kafka-topics-init is an init helper (run with `--profile init`)
+    volumes:
+      - ./route-optimizer:/app
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8083"]
     networks:
       - waste-network
       - garabadge

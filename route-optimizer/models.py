@@ -79,3 +79,6 @@ class SolveResponse(BaseModel):
 
     # null if fallback was used
     optimality_gap_pct: Optional[float] = None
+
+    # Road-snapped path for map rendering (Encoded Polyline format)
+    polyline: Optional[str] = None
