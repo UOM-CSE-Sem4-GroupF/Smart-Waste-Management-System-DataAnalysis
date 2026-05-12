@@ -1,9 +1,20 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { prisma } from "./db";
+
+// Global BigInt serialization fix
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
 import { binsRoutes } from "./routes/bins";
 import { clustersRoutes } from "./routes/clusters";
+import { zonesRoutes } from "./routes/zones";
+import { categoriesRoutes } from "./routes/categories";
+import { vehiclesRoutes } from "./routes/vehicles";
+import { devicesRoutes } from "./routes/devices";
+import { routePlansRoutes } from "./routes/route_plans";
+import { performanceRoutes } from "./routes/performance";
 import { metadataRoutes } from "./routes/metadata";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
@@ -84,6 +95,12 @@ async function start() {
     // â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     await server.register(binsRoutes, { prefix: "/api/v1" });
     await server.register(clustersRoutes, { prefix: "/api/v1" });
+    await server.register(zonesRoutes, { prefix: "/api/v1" });
+    await server.register(categoriesRoutes, { prefix: "/api/v1" });
+    await server.register(vehiclesRoutes, { prefix: "/api/v1" });
+    await server.register(devicesRoutes, { prefix: "/api/v1" });
+    await server.register(routePlansRoutes, { prefix: "/api/v1" });
+    await server.register(performanceRoutes, { prefix: "/api/v1" });
     await server.register(metadataRoutes, { prefix: "/api/v1" });
 
     await server.listen({ port: PORT, host: HOST });

@@ -239,3 +239,27 @@ model ZoneSnapshot {
   @@map("zone_snapshots")
   @@schema("f2")
 }
+
+model ModelPerformance {
+  id                 BigInt    @id @default(autoincrement())
+  model_name         String    @db.VarChar(100)
+  model_version      String    @db.VarChar(50)
+  mlflow_run_id      String?   @db.VarChar(200)
+  trained_at         DateTime  @db.Timestamptz
+  training_start_at  DateTime? @db.Timestamptz
+  training_end_at    DateTime? @db.Timestamptz
+  training_records   Int?
+  validation_records Int?
+  mae_hours          Decimal?  @db.Decimal(6, 3)
+  rmse_hours         Decimal?  @db.Decimal(6, 3)
+  r_squared          Decimal?  @db.Decimal(5, 4)
+  promoted_to_prod   Boolean   @default(false)
+  promoted_at        DateTime? @db.Timestamptz
+  replaced_at        DateTime? @db.Timestamptz
+  notes              String?   @db.Text
+  created_at         DateTime  @default(now()) @db.Timestamptz
+
+  @@unique([model_name, model_version])
+  @@map("model_performance")
+  @@schema("f2")
+}

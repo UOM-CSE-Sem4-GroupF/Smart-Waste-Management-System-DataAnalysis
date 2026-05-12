@@ -3,18 +3,6 @@ import { prisma } from "../db";
 
 export async function metadataRoutes(fastify: FastifyInstance) {
   /**
-   * GET /api/v1/zones
-   * Returns all active city zones.
-   */
-  fastify.get("/zones", async (_request, reply) => {
-    const zones = await prisma.cityZone.findMany({
-      where: { active: true },
-      orderBy: { id: "asc" },
-    });
-    return reply.send({ data: zones });
-  });
-
-  /**
    * GET /api/v1/zones/:zone_id/summary
    * Returns the latest zone snapshot and current bin stats for a zone.
    */
@@ -61,51 +49,4 @@ export async function metadataRoutes(fastify: FastifyInstance) {
       });
     }
   );
-
-  /**
-   * GET /api/v1/waste-categories
-   * Returns all supported waste categories with density metadata.
-   */
-  fastify.get("/waste-categories", async (_request, reply) => {
-    const categories = await prisma.wasteCategory.findMany({
-      orderBy: { id: "asc" },
-    });
-    return reply.send({ data: categories });
-  });
-
-  /**
-   * GET /api/v1/vehicles
-   * Returns all active vehicles with their supported waste categories.
-   */
-  fastify.get<{
-    Querystring: { status?: string; waste_category?: string };
-  }>("/vehicles", async (request, reply) => {
-    const { status, waste_category } = request.query;
-
-    const vehicles = await prisma.vehicle.findMany({
-      where: {
-        active: true,
-        ...(status ? { status } : {}),
-        ...(waste_category
-          ? {
-              waste_categories: {
-                some: { category: { name: waste_category } },
-              },
-            }
-          : {}),
-      },
-      include: {
-        waste_categories: {
-          include: {
-            category: {
-              select: { id: true, name: true, colour_code: true },
-            },
-          },
-        },
-      },
-      orderBy: { id: "asc" },
-    });
-
-    return reply.send({ data: vehicles });
-  });
 }

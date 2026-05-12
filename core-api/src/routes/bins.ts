@@ -141,4 +141,53 @@ export async function binsRoutes(fastify: FastifyInstance) {
       return reply.send({ data: bin });
     }
   );
+
+  /**
+   * POST /api/v1/bins
+   */
+  fastify.post<{ Body: any }>("/bins", async (request, reply) => {
+    const bin = await prisma.bin.create({
+      data: request.body,
+    });
+    return reply.code(211).send({ data: bin });
+  });
+
+  /**
+   * PATCH /api/v1/bins/:id
+   */
+  fastify.patch<{ Params: { id: string }; Body: any }>("/bins/:id", async (request, reply) => {
+    const { id } = request.params;
+    const bin = await prisma.bin.update({
+      where: { id },
+      data: request.body,
+    });
+    return reply.send({ data: bin });
+  });
+
+  /**
+   * DELETE /api/v1/bins/:id
+   */
+  fastify.delete<{ Params: { id: string } }>("/bins/:id", async (request, reply) => {
+    const { id } = request.params;
+    await prisma.bin.delete({ where: { id } });
+    return reply.code(204).send();
+  });
+
+  // --- BinCurrentState CRUD ---
+
+  /**
+   * PATCH /api/v1/bins/:bin_id/state
+   */
+  fastify.patch<{ Params: { bin_id: string }; Body: any }>(
+    "/bins/:bin_id/state",
+    async (request, reply) => {
+      const { bin_id } = request.params;
+      const state = await prisma.binCurrentState.upsert({
+        where: { bin_id },
+        update: request.body,
+        create: { ...request.body, bin_id },
+      });
+      return reply.send({ data: state });
+    }
+  );
 }

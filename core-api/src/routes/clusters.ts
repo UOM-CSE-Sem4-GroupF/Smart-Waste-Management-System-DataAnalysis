@@ -173,4 +173,35 @@ export async function clustersRoutes(fastify: FastifyInstance) {
       });
     }
   );
+
+  /**
+   * POST /api/v1/clusters
+   */
+  fastify.post<{ Body: any }>("/clusters", async (request, reply) => {
+    const cluster = await prisma.binCluster.create({
+      data: request.body,
+    });
+    return reply.code(211).send({ data: cluster });
+  });
+
+  /**
+   * PATCH /api/v1/clusters/:id
+   */
+  fastify.patch<{ Params: { id: string }; Body: any }>("/clusters/:id", async (request, reply) => {
+    const { id } = request.params;
+    const cluster = await prisma.binCluster.update({
+      where: { id },
+      data: request.body,
+    });
+    return reply.send({ data: cluster });
+  });
+
+  /**
+   * DELETE /api/v1/clusters/:id
+   */
+  fastify.delete<{ Params: { id: string } }>("/clusters/:id", async (request, reply) => {
+    const { id } = request.params;
+    await prisma.binCluster.delete({ where: { id } });
+    return reply.code(204).send();
+  });
 }
