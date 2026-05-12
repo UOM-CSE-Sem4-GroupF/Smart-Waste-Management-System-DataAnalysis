@@ -6,7 +6,9 @@ from pydantic import Field
 
 class Settings(BaseSettings):
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
-    # No Kafka, no DB — this service is stateless.
+    osrm_server_url: str = Field(
+        default="https://router.project-osrm.org", env="OSRM_SERVER_URL"
+    )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

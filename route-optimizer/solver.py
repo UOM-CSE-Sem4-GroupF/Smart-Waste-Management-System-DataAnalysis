@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import math
 import time
+import requests
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
+
+from config import load_settings
 
 from models import (
     BinInput,
@@ -76,6 +79,32 @@ def urgency_to_deadline_minutes(urgency_score: int) -> int:
     if urgency_score >= 70:
         return 240
     return 480  # routine bins — full shift window
+
+
+def get_road_polyline(coords: List[dict]) -> Optional[str]:
+    """
+    Fetch road-snapped polyline from OSRM.
+    Coords list: [{"lat": 6.1, "lng": 79.1}, ...]
+    """
+    if len(coords) < 2:
+        return None
+
+    settings = load_settings()
+    # OSRM expects {lng},{lat} pairs
+    coord_str = ";".join([f"{c['lng']},{c['lat']}" for c in coords])
+    url = f"{settings.osrm_server_url}/route/v1/driving/{coord_str}"
+
+    try:
+        # Use a short timeout to prevent blocking the solver too long
+        resp = requests.get(url, params={"overview": "full", "geometries": "polyline"}, timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("routes"):
+                return data["routes"][0].get("geometry")
+    except Exception:
+        # Silently fail and return None so the solver can still return waypoints
+        pass
+    return None
 
 
 # ── Data model builder (spec §6) ──────────────────────────────────────────────
@@ -205,15 +234,19 @@ def extract_solution(
     best_vehicle_idx = None
     best_route: list = []
     best_distance = float("inf")
+    best_coords: List[dict] = []
 
     for vehicle_idx in range(n_vehicles):
         index = routing.Start(vehicle_idx)
         route: list = []
+        route_coords: List[dict] = []
         route_distance = 0
         cumulative_weight = 0.0
 
         while not routing.IsEnd(index):
             node = manager.IndexToNode(index)
+            loc = data["locations"][node]
+            route_coords.append({"lat": loc["lat"], "lng": loc["lng"]})
 
             # Process cluster nodes only (skip vehicle starts and depot)
             if cluster_offset <= node < data["depot_index"]:
@@ -249,10 +282,16 @@ def extract_solution(
             index = solution.Value(routing.NextVar(index))
             route_distance += routing.GetArcCostForVehicle(prev_index, index, vehicle_idx)
 
+        # Add the end (depot) coordinate
+        end_node = manager.IndexToNode(index)
+        end_loc = data["locations"][end_node]
+        route_coords.append({"lat": end_loc["lat"], "lng": end_loc["lng"]})
+
         if route and route_distance < best_distance:
             best_vehicle_idx = vehicle_idx
             best_route = route
             best_distance = route_distance
+            best_coords = route_coords
 
     if best_vehicle_idx is None or not best_route:
         raise NoFeasibleSolutionError(
@@ -274,6 +313,7 @@ def extract_solution(
         estimated_minutes=total_minutes,
         total_weight_kg=best_route[-1].cumulative_weight_kg if best_route else 0.0,
         optimality_gap_pct=None,
+        polyline=get_road_polyline(best_coords),
     )
 
 
@@ -358,6 +398,12 @@ def _nearest_neighbour_fallback(request: SolveRequest, start_time: float) -> Sol
     total_distance_m += depot_dist
     elapsed_minutes += int(depot_dist / 1000 / AVG_SPEED_KMH * 60)
 
+    # Collect coordinates for polyline
+    route_coords = [{"lat": best_vehicle.current_lat, "lng": best_vehicle.current_lng}]
+    for wp in waypoints:
+        route_coords.append({"lat": wp.lat, "lng": wp.lng})
+    route_coords.append({"lat": request.depot.lat, "lng": request.depot.lng})
+
     return SolveResponse(
         success=True,
         job_id=request.job_id,
@@ -369,6 +415,7 @@ def _nearest_neighbour_fallback(request: SolveRequest, start_time: float) -> Sol
         estimated_minutes=elapsed_minutes,
         total_weight_kg=waypoints[-1].cumulative_weight_kg if waypoints else 0.0,
         optimality_gap_pct=None,
+        polyline=get_road_polyline(route_coords),
     )
 
 
