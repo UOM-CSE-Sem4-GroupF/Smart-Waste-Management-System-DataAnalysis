@@ -6,9 +6,12 @@ export async function zonesRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /api/v1/city-zones
+   * Supports filtering by active (default: true only).
    */
-  fastify.get("/city-zones", async (_request, reply) => {
+  fastify.get<{ Querystring: { active?: string } }>("/city-zones", async (request, reply) => {
+    const showAll = request.query.active === "all";
     const zones = await prisma.cityZone.findMany({
+      where: showAll ? {} : { active: true },
       orderBy: { id: "asc" },
     });
     return reply.send({ data: zones });
@@ -28,10 +31,13 @@ export async function zonesRoutes(fastify: FastifyInstance) {
    * POST /api/v1/city-zones
    */
   fastify.post<{ Body: any }>("/city-zones", async (request, reply) => {
-    const zone = await prisma.cityZone.create({
-      data: request.body,
-    });
-    return reply.code(211).send({ data: zone });
+    try {
+      const zone = await prisma.cityZone.create({ data: request.body });
+      return reply.code(201).send({ data: zone });
+    } catch (err: any) {
+      if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "Zone code already exists." });
+      throw err;
+    }
   });
 
   /**
@@ -39,11 +45,16 @@ export async function zonesRoutes(fastify: FastifyInstance) {
    */
   fastify.patch<{ Params: { id: string }; Body: any }>("/city-zones/:id", async (request, reply) => {
     const id = parseInt(request.params.id, 10);
-    const zone = await prisma.cityZone.update({
-      where: { id },
-      data: request.body,
-    });
-    return reply.send({ data: zone });
+    try {
+      const zone = await prisma.cityZone.update({
+        where: { id },
+        data: { ...request.body, updated_at: new Date() },
+      });
+      return reply.send({ data: zone });
+    } catch (err: any) {
+      if (err?.code === "P2025") return reply.code(404).send({ error: "Not Found" });
+      throw err;
+    }
   });
 
   /**
@@ -51,32 +62,42 @@ export async function zonesRoutes(fastify: FastifyInstance) {
    */
   fastify.delete<{ Params: { id: string } }>("/city-zones/:id", async (request, reply) => {
     const id = parseInt(request.params.id, 10);
-    await prisma.cityZone.delete({ where: { id } });
-    return reply.code(204).send();
+    try {
+      await prisma.cityZone.delete({ where: { id } });
+      return reply.code(204).send();
+    } catch (err: any) {
+      if (err?.code === "P2025") return reply.code(404).send({ error: "Not Found" });
+      throw err;
+    }
   });
 
-  // --- ZoneSnapshot CRUD ---
+  // --- ZoneSnapshot ---
 
   /**
    * GET /api/v1/zone-snapshots
+   * Returns recent snapshots, optionally filtered by zone_id.
+   * Supports limit (default 100, max 500).
    */
-  fastify.get<{ Querystring: { zone_id?: string } }>("/zone-snapshots", async (request, reply) => {
-    const { zone_id } = request.query;
-    const snapshots = await prisma.zoneSnapshot.findMany({
-      where: zone_id ? { zone_id: parseInt(zone_id, 10) } : {},
-      orderBy: { snapshot_at: "desc" },
-      take: 100,
-    });
-    return reply.send({ data: snapshots });
-  });
+  fastify.get<{ Querystring: { zone_id?: string; limit?: string } }>(
+    "/zone-snapshots",
+    async (request, reply) => {
+      const { zone_id, limit = "100" } = request.query;
+      const limitNum = Math.min(500, Math.max(1, parseInt(limit, 10)));
+      const snapshots = await prisma.zoneSnapshot.findMany({
+        where: zone_id ? { zone_id: parseInt(zone_id, 10) } : {},
+        orderBy: { snapshot_at: "desc" },
+        take: limitNum,
+      });
+      return reply.send({ data: snapshots });
+    }
+  );
 
   /**
    * POST /api/v1/zone-snapshots
+   * Written by Flink on every sliding-window tick.
    */
   fastify.post<{ Body: any }>("/zone-snapshots", async (request, reply) => {
-    const snapshot = await prisma.zoneSnapshot.create({
-      data: request.body,
-    });
-    return reply.code(211).send({ data: snapshot });
+    const snapshot = await prisma.zoneSnapshot.create({ data: request.body });
+    return reply.code(201).send({ data: snapshot });
   });
 }

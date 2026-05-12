@@ -26,10 +26,13 @@ export async function categoriesRoutes(fastify: FastifyInstance) {
    * POST /api/v1/waste-categories
    */
   fastify.post<{ Body: any }>("/waste-categories", async (request, reply) => {
-    const category = await prisma.wasteCategory.create({
-      data: request.body,
-    });
-    return reply.code(211).send({ data: category });
+    try {
+      const category = await prisma.wasteCategory.create({ data: request.body });
+      return reply.code(201).send({ data: category });
+    } catch (err: any) {
+      if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "A category with that name already exists." });
+      throw err;
+    }
   });
 
   /**
@@ -37,11 +40,16 @@ export async function categoriesRoutes(fastify: FastifyInstance) {
    */
   fastify.patch<{ Params: { id: string }; Body: any }>("/waste-categories/:id", async (request, reply) => {
     const id = parseInt(request.params.id, 10);
-    const category = await prisma.wasteCategory.update({
-      where: { id },
-      data: request.body,
-    });
-    return reply.send({ data: category });
+    try {
+      const category = await prisma.wasteCategory.update({
+        where: { id },
+        data: { ...request.body, updated_at: new Date() },
+      });
+      return reply.send({ data: category });
+    } catch (err: any) {
+      if (err?.code === "P2025") return reply.code(404).send({ error: "Not Found" });
+      throw err;
+    }
   });
 
   /**
@@ -49,7 +57,12 @@ export async function categoriesRoutes(fastify: FastifyInstance) {
    */
   fastify.delete<{ Params: { id: string } }>("/waste-categories/:id", async (request, reply) => {
     const id = parseInt(request.params.id, 10);
-    await prisma.wasteCategory.delete({ where: { id } });
-    return reply.code(204).send();
+    try {
+      await prisma.wasteCategory.delete({ where: { id } });
+      return reply.code(204).send();
+    } catch (err: any) {
+      if (err?.code === "P2025") return reply.code(404).send({ error: "Not Found" });
+      throw err;
+    }
   });
 }

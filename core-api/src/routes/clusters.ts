@@ -4,7 +4,7 @@ import { prisma } from "../db";
 export async function clustersRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/v1/clusters
-   * Returns all active bin clusters, optionally filtered by zone_id.
+   * Returns active bin clusters, optionally filtered by zone_id.
    */
   fastify.get<{
     Querystring: { zone_id?: string; page?: string; limit?: string };
@@ -15,29 +15,27 @@ export async function clustersRoutes(fastify: FastifyInstance) {
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
-    const clusters = await prisma.binCluster.findMany({
-      where: {
-        active: true,
-        ...(zone_id ? { zone_id: parseInt(zone_id, 10) } : {}),
-      },
-      include: {
-        zone: { select: { id: true, name: true, code: true } },
-        bins: {
-          where: { active: true },
-          select: { id: true, waste_category_id: true, volume_litres: true },
-        },
-      },
-      orderBy: { id: "asc" },
-      skip,
-      take: limitNum,
-    });
+    const where = {
+      active: true,
+      ...(zone_id ? { zone_id: parseInt(zone_id, 10) } : {}),
+    };
 
-    const total = await prisma.binCluster.count({
-      where: {
-        active: true,
-        ...(zone_id ? { zone_id: parseInt(zone_id, 10) } : {}),
-      },
-    });
+    const [clusters, total] = await Promise.all([
+      prisma.binCluster.findMany({
+        where,
+        include: {
+          zone: { select: { id: true, name: true, code: true } },
+          bins: {
+            where: { active: true },
+            select: { id: true, waste_category_id: true, volume_litres: true },
+          },
+        },
+        orderBy: { id: "asc" },
+        skip,
+        take: limitNum,
+      }),
+      prisma.binCluster.count({ where }),
+    ]);
 
     return reply.send({
       data: clusters,
@@ -52,7 +50,7 @@ export async function clustersRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /api/v1/clusters/:cluster_id
-   * Returns a cluster with all its bins and their current states.
+   * Returns a cluster with all its active bins and their current states.
    */
   fastify.get<{ Params: { cluster_id: string } }>(
     "/clusters/:cluster_id",
@@ -82,10 +80,7 @@ export async function clustersRoutes(fastify: FastifyInstance) {
       });
 
       if (!cluster) {
-        return reply.code(404).send({
-          error: "Not Found",
-          message: `Cluster '${cluster_id}' does not exist.`,
-        });
+        return reply.code(404).send({ error: "Not Found", message: `Cluster '${cluster_id}' does not exist.` });
       }
 
       return reply.send({ data: cluster });
@@ -94,8 +89,8 @@ export async function clustersRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /api/v1/clusters/:cluster_id/snapshot
-   * Returns urgency summary for a cluster — called by F3 orchestrator
-   * during job planning to understand total weight, max urgency, etc.
+   * Returns an urgency summary for a cluster.
+   * Called by F3 orchestrator during job planning to assess weight and urgency.
    */
   fastify.get<{ Params: { cluster_id: string } }>(
     "/clusters/:cluster_id/snapshot",
@@ -123,13 +118,9 @@ export async function clustersRoutes(fastify: FastifyInstance) {
       });
 
       if (!cluster) {
-        return reply.code(404).send({
-          error: "Not Found",
-          message: `Cluster '${cluster_id}' does not exist.`,
-        });
+        return reply.code(404).send({ error: "Not Found", message: `Cluster '${cluster_id}' does not exist.` });
       }
 
-      // Compute urgency summary from bin states
       const binSnapshots = cluster.bins.map((bin) => {
         const state = bin.current_state;
         return {
@@ -139,21 +130,14 @@ export async function clustersRoutes(fastify: FastifyInstance) {
           fill_level_pct: state ? Number(state.fill_level_pct) : null,
           urgency_score: state?.urgency_score ?? 0,
           status: state?.status ?? "unknown",
-          estimated_weight_kg: state
-            ? Number(state.estimated_weight_kg ?? 0)
-            : 0,
+          estimated_weight_kg: state ? Number(state.estimated_weight_kg ?? 0) : 0,
           predicted_full_at: state?.predicted_full_at ?? null,
         };
       });
 
-      const urgentBins = binSnapshots.filter(
-        (b) => b.status === "urgent" || b.status === "critical"
-      );
+      const urgentBins = binSnapshots.filter((b) => b.status === "urgent" || b.status === "critical");
       const maxUrgencyScore = Math.max(...binSnapshots.map((b) => b.urgency_score), 0);
-      const totalEstimatedWeightKg = binSnapshots.reduce(
-        (sum, b) => sum + (b.estimated_weight_kg ?? 0),
-        0
-      );
+      const totalEstimatedWeightKg = binSnapshots.reduce((sum, b) => sum + (b.estimated_weight_kg ?? 0), 0);
       const hasSpecialHandling = binSnapshots.some((b) => b.special_handling);
 
       return reply.send({
@@ -178,10 +162,14 @@ export async function clustersRoutes(fastify: FastifyInstance) {
    * POST /api/v1/clusters
    */
   fastify.post<{ Body: any }>("/clusters", async (request, reply) => {
-    const cluster = await prisma.binCluster.create({
-      data: request.body,
-    });
-    return reply.code(211).send({ data: cluster });
+    try {
+      const cluster = await prisma.binCluster.create({ data: request.body });
+      return reply.code(201).send({ data: cluster });
+    } catch (err: any) {
+      if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "Cluster ID already exists." });
+      if (err?.code === "P2003") return reply.code(400).send({ error: "Bad Request", message: "Zone does not exist." });
+      throw err;
+    }
   });
 
   /**
@@ -189,11 +177,16 @@ export async function clustersRoutes(fastify: FastifyInstance) {
    */
   fastify.patch<{ Params: { id: string }; Body: any }>("/clusters/:id", async (request, reply) => {
     const { id } = request.params;
-    const cluster = await prisma.binCluster.update({
-      where: { id },
-      data: request.body,
-    });
-    return reply.send({ data: cluster });
+    try {
+      const cluster = await prisma.binCluster.update({
+        where: { id },
+        data: { ...request.body, updated_at: new Date() },
+      });
+      return reply.send({ data: cluster });
+    } catch (err: any) {
+      if (err?.code === "P2025") return reply.code(404).send({ error: "Not Found" });
+      throw err;
+    }
   });
 
   /**
@@ -201,7 +194,12 @@ export async function clustersRoutes(fastify: FastifyInstance) {
    */
   fastify.delete<{ Params: { id: string } }>("/clusters/:id", async (request, reply) => {
     const { id } = request.params;
-    await prisma.binCluster.delete({ where: { id } });
-    return reply.code(204).send();
+    try {
+      await prisma.binCluster.delete({ where: { id } });
+      return reply.code(204).send();
+    } catch (err: any) {
+      if (err?.code === "P2025") return reply.code(404).send({ error: "Not Found" });
+      throw err;
+    }
   });
 }
