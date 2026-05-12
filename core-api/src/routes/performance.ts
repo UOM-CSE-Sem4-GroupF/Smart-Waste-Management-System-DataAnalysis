@@ -60,7 +60,7 @@ export async function performanceRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{ Body: any }>("/model-performance", async (request, reply) => {
     try {
-      const perf = await prisma.modelPerformance.create({ data: request.body });
+      const perf = await prisma.modelPerformance.create({ data: request.body as any });
       return reply.code(201).send({ data: perf });
     } catch (err: any) {
       if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "A record for this model_name + model_version already exists." });
@@ -77,7 +77,7 @@ export async function performanceRoutes(fastify: FastifyInstance) {
     try {
       const perf = await prisma.modelPerformance.update({
         where: { id },
-        data: request.body,
+        data: request.body as any,
       });
       return reply.send({ data: perf });
     } catch (err: any) {

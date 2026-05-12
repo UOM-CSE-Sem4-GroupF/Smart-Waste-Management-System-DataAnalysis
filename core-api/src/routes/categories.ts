@@ -27,7 +27,7 @@ export async function categoriesRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{ Body: any }>("/waste-categories", async (request, reply) => {
     try {
-      const category = await prisma.wasteCategory.create({ data: request.body });
+      const category = await prisma.wasteCategory.create({ data: request.body as any });
       return reply.code(201).send({ data: category });
     } catch (err: any) {
       if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "A category with that name already exists." });
@@ -43,7 +43,7 @@ export async function categoriesRoutes(fastify: FastifyInstance) {
     try {
       const category = await prisma.wasteCategory.update({
         where: { id },
-        data: { ...request.body, updated_at: new Date() },
+        data: { ...(request.body as any), updated_at: new Date() },
       });
       return reply.send({ data: category });
     } catch (err: any) {

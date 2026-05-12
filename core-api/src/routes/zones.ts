@@ -32,7 +32,7 @@ export async function zonesRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{ Body: any }>("/city-zones", async (request, reply) => {
     try {
-      const zone = await prisma.cityZone.create({ data: request.body });
+      const zone = await prisma.cityZone.create({ data: request.body as any });
       return reply.code(201).send({ data: zone });
     } catch (err: any) {
       if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "Zone code already exists." });
@@ -48,7 +48,7 @@ export async function zonesRoutes(fastify: FastifyInstance) {
     try {
       const zone = await prisma.cityZone.update({
         where: { id },
-        data: { ...request.body, updated_at: new Date() },
+        data: { ...(request.body as any), updated_at: new Date() },
       });
       return reply.send({ data: zone });
     } catch (err: any) {
@@ -63,6 +63,7 @@ export async function zonesRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { id: string } }>("/city-zones/:id", async (request, reply) => {
     const id = parseInt(request.params.id, 10);
     try {
+      await prisma.zoneSnapshot.deleteMany({ where: { zone_id: id } });
       await prisma.cityZone.delete({ where: { id } });
       return reply.code(204).send();
     } catch (err: any) {
@@ -97,7 +98,7 @@ export async function zonesRoutes(fastify: FastifyInstance) {
    * Written by Flink on every sliding-window tick.
    */
   fastify.post<{ Body: any }>("/zone-snapshots", async (request, reply) => {
-    const snapshot = await prisma.zoneSnapshot.create({ data: request.body });
+    const snapshot = await prisma.zoneSnapshot.create({ data: request.body as any });
     return reply.code(201).send({ data: snapshot });
   });
 }

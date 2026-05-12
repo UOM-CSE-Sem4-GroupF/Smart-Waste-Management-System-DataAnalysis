@@ -43,7 +43,7 @@ export async function vehiclesRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{ Body: any }>("/vehicles", async (request, reply) => {
     try {
-      const vehicle = await prisma.vehicle.create({ data: request.body });
+      const vehicle = await prisma.vehicle.create({ data: request.body as any });
       return reply.code(201).send({ data: vehicle });
     } catch (err: any) {
       if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "Vehicle ID or registration already exists." });
@@ -59,7 +59,7 @@ export async function vehiclesRoutes(fastify: FastifyInstance) {
     try {
       const vehicle = await prisma.vehicle.update({
         where: { id },
-        data: { ...request.body, updated_at: new Date() },
+        data: { ...(request.body as any), updated_at: new Date() },
       });
       return reply.send({ data: vehicle });
     } catch (err: any) {

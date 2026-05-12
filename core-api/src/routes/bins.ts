@@ -124,7 +124,7 @@ export async function binsRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{ Body: any }>("/bins", async (request, reply) => {
     try {
-      const bin = await prisma.bin.create({ data: request.body });
+      const bin = await prisma.bin.create({ data: request.body as any });
       return reply.code(201).send({ data: bin });
     } catch (err: any) {
       if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "Bin ID already exists." });
@@ -141,7 +141,7 @@ export async function binsRoutes(fastify: FastifyInstance) {
     try {
       const bin = await prisma.bin.update({
         where: { id },
-        data: { ...request.body, updated_at: new Date() },
+        data: { ...(request.body as any), updated_at: new Date() },
       });
       return reply.send({ data: bin });
     } catch (err: any) {
@@ -156,6 +156,7 @@ export async function binsRoutes(fastify: FastifyInstance) {
   fastify.delete<{ Params: { id: string } }>("/bins/:id", async (request, reply) => {
     const { id } = request.params;
     try {
+      await prisma.binCurrentState.deleteMany({ where: { bin_id: id } });
       await prisma.bin.delete({ where: { id } });
       return reply.code(204).send();
     } catch (err: any) {
@@ -193,8 +194,8 @@ export async function binsRoutes(fastify: FastifyInstance) {
       const { bin_id } = request.params;
       const state = await prisma.binCurrentState.upsert({
         where: { bin_id },
-        update: { ...request.body, updated_at: new Date() },
-        create: { ...request.body, bin_id },
+        update: { ...(request.body as any), updated_at: new Date() },
+        create: { ...(request.body as any), bin_id },
       });
       return reply.send({ data: state });
     }

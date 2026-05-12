@@ -163,7 +163,7 @@ export async function clustersRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{ Body: any }>("/clusters", async (request, reply) => {
     try {
-      const cluster = await prisma.binCluster.create({ data: request.body });
+      const cluster = await prisma.binCluster.create({ data: request.body as any });
       return reply.code(201).send({ data: cluster });
     } catch (err: any) {
       if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "Cluster ID already exists." });
@@ -180,7 +180,7 @@ export async function clustersRoutes(fastify: FastifyInstance) {
     try {
       const cluster = await prisma.binCluster.update({
         where: { id },
-        data: { ...request.body, updated_at: new Date() },
+        data: { ...(request.body as any), updated_at: new Date() },
       });
       return reply.send({ data: cluster });
     } catch (err: any) {

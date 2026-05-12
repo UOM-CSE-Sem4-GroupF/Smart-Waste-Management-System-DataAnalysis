@@ -51,7 +51,7 @@ export async function routePlansRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{ Body: any }>("/route-plans", async (request, reply) => {
     try {
-      const plan = await prisma.routePlan.create({ data: request.body });
+      const plan = await prisma.routePlan.create({ data: request.body as any });
       return reply.code(201).send({ data: plan });
     } catch (err: any) {
       if (err?.code === "P2003") return reply.code(400).send({ error: "Bad Request", message: "Vehicle or zone does not exist." });
@@ -68,7 +68,7 @@ export async function routePlansRoutes(fastify: FastifyInstance) {
     try {
       const plan = await prisma.routePlan.update({
         where: { id },
-        data: request.body,
+        data: request.body as any,
       });
       return reply.send({ data: plan });
     } catch (err: any) {

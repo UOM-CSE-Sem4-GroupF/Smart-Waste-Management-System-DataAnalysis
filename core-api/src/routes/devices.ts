@@ -58,7 +58,7 @@ export async function devicesRoutes(fastify: FastifyInstance) {
    */
   fastify.post<{ Body: any }>("/devices", async (request, reply) => {
     try {
-      const device = await prisma.device.create({ data: request.body });
+      const device = await prisma.device.create({ data: request.body as any });
       return reply.code(201).send({ data: device });
     } catch (err: any) {
       if (err?.code === "P2002") return reply.code(409).send({ error: "Conflict", message: "Device ID or bin assignment already exists." });
@@ -76,7 +76,7 @@ export async function devicesRoutes(fastify: FastifyInstance) {
     try {
       const device = await prisma.device.update({
         where: { id },
-        data: { ...request.body, updated_at: new Date() },
+        data: { ...(request.body as any), updated_at: new Date() },
       });
       return reply.send({ data: device });
     } catch (err: any) {
