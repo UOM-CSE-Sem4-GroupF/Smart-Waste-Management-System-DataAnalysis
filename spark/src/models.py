@@ -9,12 +9,12 @@ logger = logging.getLogger(__name__)
 def train_regression_model(pdf, features, label, model_type="rf"):
     """Generic trainer with GridSearchCV."""
     if pdf.empty:
-        return None, {}
+        return None, {}, {}
 
     # Check if we have enough data to split
     if len(pdf) < 5:
         print(f"Skipping training: Not enough data (found {len(pdf)} rows, need at least 5)")
-        return None, {}
+        return None, {}, {}
 
     X = pdf[features]
     y = pdf[label]

@@ -13,6 +13,12 @@ from src.tracking import init_mlflow, log_model
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("WasteMLJob")
 
+
+def process_data(df_bins, df_current):
+    """Aggregate estimated weight by zone for the legacy analytics check."""
+    joined = df_current.join(df_bins, df_current.bin_id == df_bins.id)
+    return joined.groupBy("zone_id").avg("estimated_weight_kg").withColumnRenamed("avg(estimated_weight_kg)", "avg_weight")
+
 def run_job():
     logger.info("Starting Waste Management ML Training Job")
     
@@ -29,9 +35,7 @@ def run_job():
         df_snapshots = load_table(spark, "zone_snapshots")
 
         # 2. Legacy Analytics (Keep leadership happy)
-        from src.data import JDBC_URL, JDBC_PROPERTIES
-        joined = df_current.join(df_bins, df_current.bin_id == df_bins.id)
-        zone_avg = joined.groupBy("zone_id").avg("estimated_weight_kg").withColumnRenamed("avg(estimated_weight_kg)", "avg_weight")
+        zone_avg = process_data(df_bins, df_current)
         save_to_db(zone_avg, "zone_avg_weight")
 
         # 3. Feature Engineering
