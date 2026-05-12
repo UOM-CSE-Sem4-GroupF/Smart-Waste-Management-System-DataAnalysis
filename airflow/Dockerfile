@@ -9,5 +9,5 @@ USER airflow
 
 COPY dags/ /opt/airflow/dags/
 
-# Install kafka-python for publishing events
-RUN pip install kafka-python
+# Install dependencies for custom tasks
+RUN pip install kafka-python mlflow
