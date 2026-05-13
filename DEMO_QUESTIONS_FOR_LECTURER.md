@@ -11,6 +11,32 @@
 
 ## Part 1: System Architecture & Design Decisions (10 minutes)
 
+### Platform Choice Warm-Up
+
+0. **Why these core tools?**
+     - Why did you choose Kafka, Spark, MLflow, Airflow, Apache Flink, and Google OR-Tools for this system?
+     - What other tools could have been used for the same purposes, and why are your choices the best fit here?
+
+     **ANSWER:**
+     - **Kafka**
+         - **Alternatives:** RabbitMQ, ActiveMQ, AWS SQS, Pulsar
+         - **Why Kafka:** Best for high-throughput event streaming, replayable logs, multiple independent consumers, and partition-based scaling. It fits telemetry and route-event pipelines better than queue-only tools.
+     - **Apache Flink**
+         - **Alternatives:** Spark Structured Streaming, Apache Storm, Kafka Streams
+         - **Why Flink:** Strong event-time handling, stateful stream processing, low-latency processing, and exactly-once semantics make it ideal for real-time bin telemetry and urgent state updates.
+     - **Apache Spark**
+         - **Alternatives:** Flink batch jobs, Hadoop MapReduce, Dask
+         - **Why Spark:** Best fit for batch analytics, historical aggregations, and ML feature preparation. It is simpler and more mature for large offline processing jobs than reusing a stream-first engine.
+     - **MLflow**
+         - **Alternatives:** TensorFlow Serving, KServe, BentoML, custom model registry
+         - **Why MLflow:** Clean model tracking, versioning, artifact management, and easy rollback. It works well for training lifecycle management without locking the project into a heavy serving stack.
+     - **Airflow**
+         - **Alternatives:** Prefect, Dagster, Luigi, cron jobs
+         - **Why Airflow:** Best for scheduled workflows with clear dependencies, retries, observability, and DAG-based orchestration of Spark training and ML reload steps.
+     - **Google OR-Tools**
+         - **Alternatives:** CPLEX, Gurobi, custom heuristics, Concorde
+         - **Why OR-Tools:** Open-source, powerful enough for VRP/VRPTW, supports constraints well, and avoids licensing cost. It is the best balance of quality, flexibility, and practicality for this project.
+
 ### Fundamental Understanding
 
 1. **System Overview**
@@ -546,14 +572,6 @@
 | **DevOps & Deployment** | Full CI/CD pipeline with monitoring | Docker/K8s working well | Basic Docker setup | Manual, ad-hoc |
 
 ---
-
-## Notes for Lecturer
-
-1. **Progression:** Questions escalate in complexity. Stop at group's comfort level.
-2. **Observation:** Who answers (knowledge distribution), if they reference docs vs deep understanding, how they handle "I don't know".
-3. **Customization:** Skip sections based on your priorities.
-4. **Group Dynamics:** If one person dominates, ask others to explain their components.
-5. **Live Demo:** Start `docker-compose up`, trigger sensor reading, trace Kafka → Flink → PostgreSQL → optimizer, show logs verifying data integrity.
 
 ---
 
