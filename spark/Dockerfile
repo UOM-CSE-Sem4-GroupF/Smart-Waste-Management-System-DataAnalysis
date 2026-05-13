@@ -6,15 +6,18 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install pyspark==3.3.4 kafka-python
-
 # Download PostgreSQL JDBC driver
 RUN mkdir -p /opt/spark/jars && \
     wget -O /opt/spark/jars/postgresql-42.6.0.jar https://jdbc.postgresql.org/download/postgresql-42.6.0.jar
 
-COPY job.py /opt/spark-apps/job.py
-
 WORKDIR /opt/spark-apps
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code modularly
+COPY src/ ./src/
+COPY job.py .
 
 ENV SPARK_CLASSPATH=/opt/spark/jars/postgresql-42.6.0.jar
 
