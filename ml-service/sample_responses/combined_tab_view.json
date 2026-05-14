@@ -1,0 +1,167 @@
+{
+  "tab_name": "Security & Events",
+  "sections": {
+    "security_dashboard": {
+      "title": "Security Incidents Dashboard",
+      "kpis": {
+        "total_incidents_24h": 5,
+        "critical_incidents_24h": 1,
+        "open_incidents": 2,
+        "resolved_incidents_24h": 3,
+        "avg_resolution_time_hours": 2.5,
+        "false_alarm_rate_pct": 8.0
+      },
+      "recent_incidents": [
+        {
+          "id": 1,
+          "event_type": "COORDINATED_ATTACK",
+          "severity": "CRITICAL",
+          "affected_zones": [1, 3, 5],
+          "bayesian_probability": 0.92,
+          "resolution_status": "investigating",
+          "timestamp": "2026-05-14T10:30:00Z"
+        },
+        {
+          "id": 2,
+          "event_type": "ENTROPY_ANOMALY",
+          "severity": "HIGH",
+          "affected_zones": [2],
+          "bayesian_probability": 0.85,
+          "resolution_status": "open",
+          "timestamp": "2026-05-14T12:15:00Z"
+        }
+      ],
+      "attack_types_chart": {
+        "COORDINATED_ATTACK": 1,
+        "ENTROPY_ANOMALY": 2,
+        "NETWORK_ANOMALY": 2
+      }
+    },
+    "events_dashboard": {
+      "title": "Special Events & Anomaly Correlation",
+      "logged_events": {
+        "title": "Manually Logged Events",
+        "events": [
+          {
+            "id": 1,
+            "event_name": "City Festival 2026",
+            "event_type": "FESTIVAL",
+            "zones": [1, 2, 3],
+            "start_time": "2026-05-09T09:00:00Z",
+            "end_time": "2026-05-09T22:00:00Z",
+            "anomalies_during_event": 28,
+            "collection_execution_rate": 91.5
+          },
+          {
+            "id": 3,
+            "event_name": "Concert - City Arena",
+            "event_type": "CONCERT",
+            "zones": [1, 2, 4],
+            "start_time": "2026-05-14T18:00:00Z",
+            "end_time": "2026-05-14T23:00:00Z",
+            "anomalies_during_event": null,
+            "status": "upcoming"
+          }
+        ]
+      },
+      "auto_detected_events": {
+        "title": "Auto-Detected Event Patterns",
+        "events": [
+          {
+            "id": 1,
+            "type": "CHAOTIC_DEMAND",
+            "zone": 2,
+            "detected_at": "2026-05-14T16:05:00Z",
+            "confidence": 0.85,
+            "estimated_type": "FESTIVAL",
+            "waste_increase_pct": 104.2,
+            "processed": false,
+            "action": "Review & link to logged event (if applicable)"
+          },
+          {
+            "id": 2,
+            "type": "RAPID_SURGE",
+            "zone": 5,
+            "detected_at": "2026-05-14T13:05:00Z",
+            "confidence": 0.72,
+            "estimated_type": "MARKET_DAY",
+            "bins_surged": 6,
+            "processed": true,
+            "linked_event": "Street Cleaning - Main Avenue"
+          }
+        ]
+      }
+    },
+    "correlation_view": {
+      "title": "Anomaly Context & Recommendations",
+      "example_anomaly": {
+        "id": 100,
+        "type": "data_quality",
+        "severity": "HIGH",
+        "bin_id": "BIN-042",
+        "zone_id": 2,
+        "timestamp": "2026-05-14T14:30:00Z",
+        "issue": "Entropy anomaly (entropy 0.08 - spoofed constant values)"
+      },
+      "context": {
+        "related_security_incidents": [],
+        "related_events": [
+          {
+            "type": "Event",
+            "name": "City Festival 2026",
+            "zone": 2,
+            "overlap": "Anomaly occurred during festival"
+          }
+        ],
+        "auto_detected_events": [
+          {
+            "type": "CHAOTIC_DEMAND detection",
+            "zone": 2,
+            "confidence": 0.85,
+            "pattern": "High waste volume - consistent with festival"
+          }
+        ]
+      },
+      "recommended_actions": [
+        "Anomaly correlates with City Festival (09:00-22:00) in zone 2",
+        "Chaotic demand pattern detected - confidence 0.85 (likely event-driven)",
+        "Entropy anomaly suggests sensor malfunction or spoofed data on BIN-042",
+        "Recommendation: Check BIN-042 sensor calibration after festival ends",
+        "Consider: This is normal behavior for event-driven scenarios"
+      ]
+    },
+    "controls": {
+      "filters": {
+        "security_incidents": {
+          "time_range": "24h/7d/30d",
+          "severity": "All/LOW/MEDIUM/HIGH/CRITICAL",
+          "event_type": "All attack types",
+          "resolution_status": "All/open/investigating/mitigated/confirmed/false_alarm"
+        },
+        "events": {
+          "time_range": "7d/30d/90d",
+          "event_type": "All/FESTIVAL/CONCERT/etc",
+          "zone": "All zones or specific zones",
+          "processed": "All/Unprocessed/Processed"
+        }
+      },
+      "actions": {
+        "security": [
+          "View incident details",
+          "Mark as false alarm",
+          "Escalate incident",
+          "Revoke API token"
+        ],
+        "events": [
+          "Log new event",
+          "Link auto-detected event to logged event",
+          "View impact analysis",
+          "Export event correlation report"
+        ]
+      }
+    }
+  },
+  "refresh_interval_seconds": 60,
+  "real_time_stream_available": true,
+  "websocket_endpoint": "ws://localhost:8000/ws/anomalies/stream?types=security,events"
+}

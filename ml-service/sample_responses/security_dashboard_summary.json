@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "data": {
+    "total_incidents_24h": 5,
+    "critical_incidents_24h": 1,
+    "open_incidents": 2,
+    "resolved_incidents_24h": 3,
+    "attack_types_distribution": {
+      "COORDINATED_ATTACK": 1,
+      "ENTROPY_ANOMALY": 2,
+      "NETWORK_ANOMALY": 2
+    },
+    "avg_resolution_time_hours": 2.5,
+    "false_alarm_rate_pct": 8.0,
+    "last_incident_timestamp": "2026-05-14T14:30:00Z"
+  },
+  "timestamp": "2026-05-14T15:00:00Z"
+}
