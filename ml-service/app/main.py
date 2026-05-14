@@ -3,6 +3,7 @@ from fastapi import FastAPI
 import logging
 
 from app.api.routes_ml import router as ml_router
+from app.api.routes_anomaly_security_events import router as anomaly_router
 from app.core.config import SETTINGS
 from app.schemas import HealthResponse
 from app.services.predictor import predictor
@@ -20,6 +21,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(ml_router)
+app.include_router(anomaly_router)
 
 
 @app.get("/health", response_model=HealthResponse)
