@@ -8,6 +8,7 @@ from config import load_settings
 from processors.vehicle_deviation import ValidationError, VehicleDeviationProcessor
 from route_store import RouteStore, RouteStoreError
 from sinks.kafka_sink import KafkaSink
+from reroute import compute_reroute, build_reroute_event
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -53,6 +54,23 @@ def process_single_event(raw_event, processor: VehicleDeviationProcessor, kafka_
         if alert is None:
             return False
         kafka_sink.publish_vehicle_deviation(alert)
+        # attempt to compute a simple reroute suggestion and notify frontend
+        try:
+            gps_event = processor.parse_gps_event(raw_event)
+        except ValidationError:
+            gps_event = None
+
+        if gps_event is not None:
+            try:
+                route_plan = processor.load_route_plan(gps_event["vehicle_id"], gps_event.get("job_id"))
+                if route_plan is not None:
+                    new_waypoints = compute_reroute(gps_event, route_plan)
+                    reroute_event = build_reroute_event(alert, gps_event, route_plan, new_waypoints)
+                    # publish to route optimizer input (optional) and frontend topic
+                    kafka_sink.publish_reroute(reroute_event)
+                    kafka_sink.publish_frontend_notification(reroute_event)
+            except Exception:
+                logger.exception("Failed to compute or publish reroute for vehicle %s", alert.get("vehicle_id"))
         return True
     except ValidationError as exc:
         logger.warning("Skipping invalid vehicle location event: %s", exc)
