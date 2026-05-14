@@ -58,6 +58,26 @@ class KafkaSink:
             result.offset,
         )
 
+    def publish_reroute(self, event: Dict[str, Any]) -> None:
+        future = self._producer.send(self.settings.kafka_reroute_topic, event)
+        result = future.get(timeout=10)
+        logger.debug(
+            "Published reroute event to Kafka topic=%s partition=%s offset=%s",
+            self.settings.kafka_reroute_topic,
+            result.partition,
+            result.offset,
+        )
+
+    def publish_frontend_notification(self, event: Dict[str, Any]) -> None:
+        future = self._producer.send(self.settings.kafka_frontend_topic, event)
+        result = future.get(timeout=10)
+        logger.debug(
+            "Published frontend notification to Kafka topic=%s partition=%s offset=%s",
+            self.settings.kafka_frontend_topic,
+            result.partition,
+            result.offset,
+        )
+
     def close(self) -> None:
         self._producer.flush()
         self._producer.close()

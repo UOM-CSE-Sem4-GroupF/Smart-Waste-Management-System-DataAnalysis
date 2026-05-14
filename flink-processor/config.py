@@ -19,6 +19,8 @@ class Settings:
     kafka_vehicle_location_topic: str
     kafka_vehicle_deviation_topic: str
     kafka_output_topic: str
+    kafka_reroute_topic: str
+    kafka_frontend_topic: str
     kafka_zone_input_topic: str
     kafka_zone_output_topic: str
     kafka_security_protocol: str
@@ -78,6 +80,8 @@ def load_settings() -> Settings:
             "waste.vehicle.deviation",
         ),
         kafka_output_topic=os.getenv("KAFKA_OUTPUT_TOPIC", "waste.bin.processed"),
+        kafka_reroute_topic=os.getenv("KAFKA_REROUTE_TOPIC", "waste.route.reroute"),
+        kafka_frontend_topic=os.getenv("KAFKA_FRONTEND_TOPIC", "waste.frontend.notifications"),
         kafka_zone_input_topic=os.getenv("KAFKA_ZONE_INPUT_TOPIC", "waste.bin.processed"),
         kafka_zone_output_topic=os.getenv("KAFKA_ZONE_OUTPUT_TOPIC", "waste.zone.statistics"),
         kafka_security_protocol=os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT"),
